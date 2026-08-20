@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 虫眼鏡の外枠 -->
+  <circle cx="10.5" cy="10.5" r="7" />
+  <!-- 虫眼鏡の柄 -->
+  <line x1="15.5" y1="15.5" x2="21.5" y2="21.5" />
+  <!-- 中央の "E" 形状シンボル -->
+  <path d="M8 8h5 M8 10.5h3.5 M8 13h5" stroke-width="1.6" />
+</svg>

@@ -1,0 +1,87 @@
+{
+  "name": "multi-encoding-search",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "1.0.1",
+  "publisher": "yuitomaruyama",
+  "icon": "media/icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yuito02task/multi-encoding-search.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yuito02task/multi-encoding-search/issues"
+  },
+  "homepage": "https://github.com/yuito02task/multi-encoding-search#readme",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "encoding",
+    "euc-jp",
+    "eucjp",
+    "shift_jis",
+    "shiftjis",
+    "sjis",
+    "utf-8",
+    "utf8",
+    "search",
+    "workspace-search",
+    "ripgrep",
+    "japanese",
+    "mojibake",
+    "issue-127896",
+    "issue-23570"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "l10n": "./l10n",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "multi-encoding-search-container",
+          "title": "%viewsContainers.multiEncodingSearch.title%",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "multi-encoding-search-container": [
+        {
+          "type": "webview",
+          "id": "multiEncodingSearch.searchView",
+          "name": "%views.multiEncodingSearch.name%"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "%config.title%",
+      "properties": {
+        "multiEncodingSearch.rgPath": {
+          "type": "string",
+          "default": "rg",
+          "description": "%config.rgPath.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@vscode/ripgrep": "^1.18.0"
+  }
+}

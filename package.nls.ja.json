@@ -1,0 +1,9 @@
+{
+  "extension.displayName": "マルチ文字コード検索 (EUC-JP / Shift_JIS / UTF-8)",
+  "extension.description": "VS Code標準検索の文字コード制約を解決。設定を変えることなく、EUC-JP・Shift_JIS・UTF-8の混在ファイルを自動で並行検索＆文字コードを維持して開きます。",
+  "viewsContainers.multiEncodingSearch.title": "マルチ文字コード検索",
+  "views.multiEncodingSearch.name": "マルチ文字コード検索",
+  "config.title": "マルチ文字コード検索",
+  "config.defaultEncoding.description": "初期表示する検索用エンコーディング",
+  "config.rgPath.description": "ripgrep の実行ファイル名またはフルパス (既定で同梱されています)"
+}

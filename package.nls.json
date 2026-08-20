@@ -1,0 +1,9 @@
+{
+  "extension.displayName": "Multi-Encoding Search (EUC-JP / Shift_JIS / UTF-8)",
+  "extension.description": "Fixes VS Code's workspace search encoding limitation. Automatically searches EUC-JP, Shift_JIS, and UTF-8 files simultaneously without changing your settings.",
+  "viewsContainers.multiEncodingSearch.title": "Multi-Encoding Search",
+  "views.multiEncodingSearch.name": "Multi-Encoding Search",
+  "config.title": "Multi-Encoding Search",
+  "config.defaultEncoding.description": "Initial search encoding (euc-jp, utf-8, or shift_jis)",
+  "config.rgPath.description": "ripgrep executable name or full path (bundled by default)"
+}

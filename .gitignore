@@ -1,0 +1,19 @@
+# ビルド成果物
+out
+out-build
+dist
+
+# 依存パッケージ
+node_modules
+
+# VSIX パッケージファイル
+*.vsix
+
+# 開発用・指示書・一時ファイル
+vscode-eucjp-search-extension-instructions.md
+test-samples
+
+# OS / エディタ一時ファイル
+.DS_Store
+Thumbs.db
+*.log
