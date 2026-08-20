@@ -33,7 +33,7 @@ This extension addresses the long-standing workspace search limitations discusse
 
 VS Code の標準検索は `files.encoding`（通常 UTF-8）に依存しているため、EUC-JP や Shift_JIS の既存ファイルが混在するプロジェクトでは日本語検索がヒットせず、開いた際に文字化けが発生します。
 
-本拡張機能は、上記 VS Code 公式 Issue で議論されてきた課題を解決するために作成されました。
+本拡張機能は、上記 VS Code 公式 Issue で議論されてきた課題を解決するものです。
 
 ### 主な機能
 1. **複数文字コードの同時並行検索**: EUC-JP・Shift_JIS・UTF-8 を 1 つのクエリで同時に検索し、重複を自動排除して結果を表示します。
