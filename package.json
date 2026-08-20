@@ -78,40 +78,72 @@
       "title": "%config.title%",
       "properties": {
         "multiEncodingSearch.encodings": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "utf-8",
-              "euc-jp",
-              "shift_jis",
-              "utf-16le",
-              "utf-16be",
-              "windows-1252",
-              "gb18030",
-              "gbk",
-              "big5",
-              "euc-kr"
-            ],
-            "enumDescriptions": [
-              "UTF-8",
-              "EUC-JP (Japanese Unix/Linux)",
-              "Shift_JIS / CP932 / Windows-31J (Japanese Windows)",
-              "UTF-16 Little Endian",
-              "UTF-16 Big Endian",
-              "Windows-1252 / Latin-1 (Western European)",
-              "GB18030 (Simplified Chinese)",
-              "GBK (Simplified Chinese)",
-              "Big5 (Traditional Chinese)",
-              "EUC-KR (Korean)"
-            ]
+          "type": "object",
+          "description": "%config.encodings.description%",
+          "default": {
+            "utf8": true,
+            "eucjp": true,
+            "shiftjis": true,
+            "utf16le": true,
+            "utf16be": true,
+            "windows1252": true,
+            "gb18030": true,
+            "gbk": true,
+            "big5": true,
+            "euckr": true
           },
-          "default": [
-            "utf-8",
-            "euc-jp",
-            "shift_jis"
-          ],
-          "description": "%config.encodings.description%"
+          "properties": {
+            "utf8": {
+              "type": "boolean",
+              "default": true,
+              "description": "UTF-8"
+            },
+            "eucjp": {
+              "type": "boolean",
+              "default": true,
+              "description": "EUC-JP (Japanese Unix/Linux)"
+            },
+            "shiftjis": {
+              "type": "boolean",
+              "default": true,
+              "description": "Shift_JIS / CP932 / Windows-31J (Japanese Windows)"
+            },
+            "utf16le": {
+              "type": "boolean",
+              "default": true,
+              "description": "UTF-16 LE (Little Endian Unicode)"
+            },
+            "utf16be": {
+              "type": "boolean",
+              "default": true,
+              "description": "UTF-16 BE (Big Endian Unicode)"
+            },
+            "windows1252": {
+              "type": "boolean",
+              "default": true,
+              "description": "Windows-1252 / Latin-1 (Western European)"
+            },
+            "gb18030": {
+              "type": "boolean",
+              "default": true,
+              "description": "GB18030 (Simplified Chinese National Standard)"
+            },
+            "gbk": {
+              "type": "boolean",
+              "default": true,
+              "description": "GBK (Simplified Chinese Legacy)"
+            },
+            "big5": {
+              "type": "boolean",
+              "default": true,
+              "description": "Big5 (Traditional Chinese)"
+            },
+            "euckr": {
+              "type": "boolean",
+              "default": true,
+              "description": "EUC-KR (Korean Legacy)"
+            }
+          }
         },
         "multiEncodingSearch.rgPath": {
           "type": "string",

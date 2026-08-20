@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as childProcess from 'child_process';
 import { RipgrepRunner } from './ripgrepRunner';
 import { SearchOptions, WebviewMessage, ExtensionMessage, SupportedEncoding } from './types';
 
@@ -26,22 +27,34 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
 
     // 1. ユーザーが明示的にデフォルト ('rg') 以外のカスタムパスを指定している場合は最優先
     if (userConfigPath && userConfigPath !== 'rg' && userConfigPath.trim().length > 0) {
-      return userConfigPath;
+      if (this.isValidExecutable(userConfigPath)) {
+        return userConfigPath;
+      }
     }
 
     const isWindows = process.platform === 'win32';
     const binaryName = isWindows ? 'rg.exe' : 'rg';
+    const platformArch = `${process.platform}-${process.arch}`;
 
-    // 2. VS Code 本体に同梱されている ripgrep の探索 (WSL, Remote, Desktop すべてで最優先)
-    // VS Code は各プラットフォーム(Linux/Mac/Windows)ごとの正規 ripgrep を必ず内蔵しています
+    // 2. VS Code 本体同梱 ripgrep の探索 (デスクトップ / WSL / Remote SSH / Containers すべて対応)
     const appRoot = vscode.env.appRoot;
     if (appRoot) {
       const vscodeCandidates = [
+        // @vscode/ripgrep-universal (VS Code 1.122+ 新構造)
+        path.join(appRoot, 'node_modules', '@vscode', 'ripgrep-universal', 'bin', platformArch, binaryName),
+        path.join(appRoot, 'node_modules', '@vscode', 'ripgrep-universal', 'bin', binaryName),
+        path.join(appRoot, 'node_modules.asar.unpacked', '@vscode', 'ripgrep-universal', 'bin', platformArch, binaryName),
+        path.join(appRoot, 'node_modules.asar.unpacked', '@vscode', 'ripgrep-universal', 'bin', binaryName),
+        // @vscode/ripgrep (従来構造)
         path.join(appRoot, 'node_modules', '@vscode', 'ripgrep', 'bin', binaryName),
         path.join(appRoot, 'node_modules.asar.unpacked', '@vscode', 'ripgrep', 'bin', binaryName),
+        path.join(appRoot, 'node_modules', '@vscode', `ripgrep-${platformArch}`, 'bin', binaryName),
+        // vscode-ripgrep
         path.join(appRoot, 'node_modules', 'vscode-ripgrep', 'bin', binaryName),
         path.join(appRoot, 'node_modules.asar.unpacked', 'vscode-ripgrep', 'bin', binaryName),
-        path.join(appRoot, 'node_modules', '@vscode', `ripgrep-${process.platform}-${process.arch}`, 'bin', binaryName),
+        // 親ディレクトリ階層 (VS Code Server 等)
+        path.join(appRoot, '..', 'node_modules', '@vscode', 'ripgrep-universal', 'bin', platformArch, binaryName),
+        path.join(appRoot, '..', 'node_modules', '@vscode', 'ripgrep-universal', 'bin', binaryName),
         path.join(appRoot, '..', 'node_modules', '@vscode', 'ripgrep', 'bin', binaryName),
         path.join(appRoot, '..', 'node_modules.asar.unpacked', '@vscode', 'ripgrep', 'bin', binaryName)
       ];
@@ -51,13 +64,57 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           return candidate;
         }
       }
+
+      // appRoot 配下の再帰探索フォールバック
+      const foundInAppRoot = this.findRipgrepRecursively(appRoot, binaryName, 3);
+      if (foundInAppRoot) {
+        return foundInAppRoot;
+      }
     }
 
-    // 3. 拡張機能自身のディレクトリ内のバイナリ探索 (現在のプラットフォームに合致するもののみ)
+    // 3. システム PATH および Linux / macOS 標準ディレクトリの探索
+    if (!isWindows) {
+      const standardUnixPaths = [
+        '/usr/bin/rg',
+        '/usr/local/bin/rg',
+        '/snap/bin/rg',
+        '/bin/rg',
+        path.join(process.env.HOME || '', '.cargo', 'bin', 'rg'),
+        path.join(process.env.HOME || '', '.local', 'bin', 'rg')
+      ];
+
+      for (const unixPath of standardUnixPaths) {
+        if (this.isValidExecutable(unixPath)) {
+          return unixPath;
+        }
+      }
+
+      // which コマンドによる探索
+      try {
+        const whichOutput = childProcess.execSync('which rg', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        if (whichOutput && this.isValidExecutable(whichOutput)) {
+          return whichOutput;
+        }
+      } catch {
+        // ignore
+      }
+    } else {
+      // Windows where コマンドによる探索
+      try {
+        const whereOutput = childProcess.execSync('where.exe rg', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\r?\n/)[0].trim();
+        if (whereOutput && this.isValidExecutable(whereOutput)) {
+          return whereOutput;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 4. 拡張機能自身のディレクトリ内のバイナリ探索 (現在のプラットフォームに合致するもののみ)
     const extFsPath = this.extensionUri.fsPath;
     const extensionCandidates = [
-      path.join(extFsPath, 'node_modules', '@vscode', `ripgrep-${process.platform}-${process.arch}`, 'bin', binaryName),
-      path.join(extFsPath, 'node_modules', `@vscode/ripgrep-${process.platform}-${process.arch}`, 'bin', binaryName),
+      path.join(extFsPath, 'node_modules', '@vscode', `ripgrep-${platformArch}`, 'bin', binaryName),
+      path.join(extFsPath, 'node_modules', `@vscode/ripgrep-${platformArch}`, 'bin', binaryName),
       path.join(extFsPath, 'node_modules', '@vscode', 'ripgrep', 'bin', binaryName),
       path.join(extFsPath, 'node_modules', 'vscode-ripgrep', 'bin', binaryName)
     ];
@@ -68,8 +125,50 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       }
     }
 
-    // 4. フォールバック: システムの PATH 上の 'rg' (または 'rg.exe')
+    // 5. 最終フォールバック: システムの PATH 上の 'rg'
     return binaryName;
+  }
+
+  /**
+   * 指定ディレクトリ配下から ripgrep 実行ファイルを探索する (深さ制限付き)
+   */
+  private findRipgrepRecursively(dir: string, binaryName: string, maxDepth: number): string | null {
+    if (maxDepth < 0) {
+      return null;
+    }
+
+    try {
+      if (!fs.existsSync(dir)) {
+        return null;
+      }
+
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isFile() && entry.name === binaryName) {
+          if (this.isValidExecutable(fullPath)) {
+            return fullPath;
+          }
+        } else if (entry.isDirectory()) {
+          // ripgrep や node_modules 関連フォルダを優先探索
+          if (
+            entry.name === 'node_modules' ||
+            entry.name === '@vscode' ||
+            entry.name.includes('ripgrep') ||
+            entry.name === 'bin'
+          ) {
+            const result = this.findRipgrepRecursively(fullPath, binaryName, maxDepth - 1);
+            if (result) {
+              return result;
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
   }
 
   /**
@@ -78,7 +177,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    */
   private isValidExecutable(filePath: string): boolean {
     try {
-      if (!fs.existsSync(filePath)) {
+      if (!filePath || !fs.existsSync(filePath)) {
         return false;
       }
 
@@ -178,10 +277,8 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     // 使用する ripgrep のパスを解決
     const rgPath = this.resolveRipgrepPath();
 
-    // 検索対象エンコーディングを設定から取得
-    const config = vscode.workspace.getConfiguration('multiEncodingSearch');
-    const configuredEncodings = config.get<SupportedEncoding[]>('encodings', ['utf-8', 'euc-jp', 'shift_jis']);
-    options.targetEncodings = configuredEncodings.length > 0 ? configuredEncodings : ['utf-8', 'euc-jp', 'shift_jis'];
+    // 検索対象エンコーディングを設定から取得 (個別オン/オフ設定に対応)
+    options.targetEncodings = this.getConfiguredEncodings();
 
     // 検索開始を通知
     this.postMessageToWebview({ command: 'searchStart' });
@@ -290,6 +387,35 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       const errMsg = vscode.l10n.t('Failed to open file: {0} ({1})', filePath, error?.message || error);
       vscode.window.showErrorMessage(errMsg);
     }
+  }
+
+  /**
+   * 設定から有効になっている検索対象文字コード一覧を取得する
+   */
+  private getConfiguredEncodings(): SupportedEncoding[] {
+    const config = vscode.workspace.getConfiguration('multiEncodingSearch');
+    const encodingsConfig = config.get<Record<string, boolean>>('encodings') || {};
+
+    const encodings: SupportedEncoding[] = [];
+
+    // 各エンコーディングのオン/オフ判定 (設定未定義の場合はすべてデフォルト true)
+    if (encodingsConfig.utf8 !== false) encodings.push('utf-8');
+    if (encodingsConfig.eucjp !== false) encodings.push('euc-jp');
+    if (encodingsConfig.shiftjis !== false) encodings.push('shift_jis');
+    if (encodingsConfig.utf16le !== false) encodings.push('utf-16le');
+    if (encodingsConfig.utf16be !== false) encodings.push('utf-16be');
+    if (encodingsConfig.windows1252 !== false) encodings.push('windows-1252');
+    if (encodingsConfig.gb18030 !== false) encodings.push('gb18030');
+    if (encodingsConfig.gbk !== false) encodings.push('gbk');
+    if (encodingsConfig.big5 !== false) encodings.push('big5');
+    if (encodingsConfig.euckr !== false) encodings.push('euc-kr');
+
+    // 万が一すべてオフの場合は最低限 utf-8 を対象にする
+    if (encodings.length === 0) {
+      encodings.push('utf-8');
+    }
+
+    return encodings;
   }
 
   /**
