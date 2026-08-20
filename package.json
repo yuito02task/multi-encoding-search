@@ -77,73 +77,55 @@
     "configuration": {
       "title": "%config.title%",
       "properties": {
-        "multiEncodingSearch.encodings": {
-          "type": "object",
-          "description": "%config.encodings.description%",
-          "default": {
-            "utf8": true,
-            "eucjp": true,
-            "shiftjis": true,
-            "utf16le": true,
-            "utf16be": true,
-            "windows1252": true,
-            "gb18030": true,
-            "gbk": true,
-            "big5": true,
-            "euckr": true
-          },
-          "properties": {
-            "utf8": {
-              "type": "boolean",
-              "default": true,
-              "description": "UTF-8"
-            },
-            "eucjp": {
-              "type": "boolean",
-              "default": true,
-              "description": "EUC-JP (Japanese Unix/Linux)"
-            },
-            "shiftjis": {
-              "type": "boolean",
-              "default": true,
-              "description": "Shift_JIS / CP932 / Windows-31J (Japanese Windows)"
-            },
-            "utf16le": {
-              "type": "boolean",
-              "default": true,
-              "description": "UTF-16 LE (Little Endian Unicode)"
-            },
-            "utf16be": {
-              "type": "boolean",
-              "default": true,
-              "description": "UTF-16 BE (Big Endian Unicode)"
-            },
-            "windows1252": {
-              "type": "boolean",
-              "default": true,
-              "description": "Windows-1252 / Latin-1 (Western European)"
-            },
-            "gb18030": {
-              "type": "boolean",
-              "default": true,
-              "description": "GB18030 (Simplified Chinese National Standard)"
-            },
-            "gbk": {
-              "type": "boolean",
-              "default": true,
-              "description": "GBK (Simplified Chinese Legacy)"
-            },
-            "big5": {
-              "type": "boolean",
-              "default": true,
-              "description": "Big5 (Traditional Chinese)"
-            },
-            "euckr": {
-              "type": "boolean",
-              "default": true,
-              "description": "EUC-KR (Korean Legacy)"
-            }
-          }
+        "multiEncodingSearch.encodings.utf8": {
+          "type": "boolean",
+          "default": true,
+          "description": "UTF-8"
+        },
+        "multiEncodingSearch.encodings.eucjp": {
+          "type": "boolean",
+          "default": true,
+          "description": "EUC-JP (Japanese Unix/Linux)"
+        },
+        "multiEncodingSearch.encodings.shiftjis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Shift_JIS / CP932 / Windows-31J (Japanese Windows)"
+        },
+        "multiEncodingSearch.encodings.utf16le": {
+          "type": "boolean",
+          "default": true,
+          "description": "UTF-16 LE (Little Endian Unicode)"
+        },
+        "multiEncodingSearch.encodings.utf16be": {
+          "type": "boolean",
+          "default": true,
+          "description": "UTF-16 BE (Big Endian Unicode)"
+        },
+        "multiEncodingSearch.encodings.windows1252": {
+          "type": "boolean",
+          "default": true,
+          "description": "Windows-1252 / Latin-1 (Western European)"
+        },
+        "multiEncodingSearch.encodings.gb18030": {
+          "type": "boolean",
+          "default": true,
+          "description": "GB18030 (Simplified Chinese National Standard)"
+        },
+        "multiEncodingSearch.encodings.gbk": {
+          "type": "boolean",
+          "default": true,
+          "description": "GBK (Simplified Chinese Legacy)"
+        },
+        "multiEncodingSearch.encodings.big5": {
+          "type": "boolean",
+          "default": true,
+          "description": "Big5 (Traditional Chinese)"
+        },
+        "multiEncodingSearch.encodings.euckr": {
+          "type": "boolean",
+          "default": true,
+          "description": "EUC-KR (Korean Legacy)"
         },
         "multiEncodingSearch.rgPath": {
           "type": "string",
