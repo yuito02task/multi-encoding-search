@@ -2,7 +2,7 @@
   "name": "multi-encoding-search",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "yuitomaruyama",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -28,8 +28,18 @@
     "shift_jis",
     "shiftjis",
     "sjis",
+    "cp932",
+    "windows-31j",
     "utf-8",
     "utf8",
+    "utf-16",
+    "utf16le",
+    "windows-1252",
+    "latin1",
+    "gb18030",
+    "gbk",
+    "big5",
+    "euc-kr",
     "search",
     "workspace-search",
     "search-in-files",
@@ -67,6 +77,42 @@
     "configuration": {
       "title": "%config.title%",
       "properties": {
+        "multiEncodingSearch.encodings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "utf-8",
+              "euc-jp",
+              "shift_jis",
+              "utf-16le",
+              "utf-16be",
+              "windows-1252",
+              "gb18030",
+              "gbk",
+              "big5",
+              "euc-kr"
+            ],
+            "enumDescriptions": [
+              "UTF-8",
+              "EUC-JP (Japanese Unix/Linux)",
+              "Shift_JIS / CP932 / Windows-31J (Japanese Windows)",
+              "UTF-16 Little Endian",
+              "UTF-16 Big Endian",
+              "Windows-1252 / Latin-1 (Western European)",
+              "GB18030 (Simplified Chinese)",
+              "GBK (Simplified Chinese)",
+              "Big5 (Traditional Chinese)",
+              "EUC-KR (Korean)"
+            ]
+          },
+          "default": [
+            "utf-8",
+            "euc-jp",
+            "shift_jis"
+          ],
+          "description": "%config.encodings.description%"
+        },
         "multiEncodingSearch.rgPath": {
           "type": "string",
           "default": "rg",

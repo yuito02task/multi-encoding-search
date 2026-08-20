@@ -3,7 +3,17 @@
  */
 
 /** サポートする文字エンコーディング一覧 */
-export type SupportedEncoding = 'euc-jp' | 'utf-8' | 'shift_jis';
+export type SupportedEncoding =
+  | 'utf-8'
+  | 'euc-jp'
+  | 'shift_jis'
+  | 'utf-16le'
+  | 'utf-16be'
+  | 'windows-1252'
+  | 'gb18030'
+  | 'gbk'
+  | 'big5'
+  | 'euc-kr';
 
 /**
  * 検索オプションの定義
@@ -21,6 +31,8 @@ export interface SearchOptions {
   includePattern?: string;
   /** 検索対象から除外するファイルパターン (glob) */
   excludePattern?: string;
+  /** 検索対象の文字コード一覧 */
+  targetEncodings?: SupportedEncoding[];
 }
 
 /**

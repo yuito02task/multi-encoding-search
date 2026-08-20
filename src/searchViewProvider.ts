@@ -32,52 +32,79 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     const isWindows = process.platform === 'win32';
     const binaryName = isWindows ? 'rg.exe' : 'rg';
 
-    // 2. 拡張機能自身のディレクトリ内のバイナリ探索候補
-    const extFsPath = this.extensionUri.fsPath;
-    const extensionCandidates = [
-      // プラットフォーム固有パッケージ
-      path.join(extFsPath, 'node_modules', `@vscode/ripgrep-${process.platform}-${process.arch}`, 'bin', binaryName),
-      path.join(extFsPath, 'node_modules', '@vscode', `ripgrep-${process.platform}-${process.arch}`, 'bin', binaryName),
-      path.join(extFsPath, 'node_modules', '@vscode', 'ripgrep-win32-x64', 'bin', 'rg.exe'),
-      path.join(extFsPath, 'node_modules', '@vscode', 'ripgrep-linux-x64', 'bin', 'rg'),
-      path.join(extFsPath, 'node_modules', '@vscode', 'ripgrep-darwin-x64', 'bin', 'rg'),
-      path.join(extFsPath, 'node_modules', '@vscode', 'ripgrep-darwin-arm64', 'bin', 'rg'),
-      path.join(extFsPath, 'node_modules', '@vscode', 'ripgrep', 'bin', binaryName)
-    ];
-
-    for (const candidate of extensionCandidates) {
-      try {
-        if (fs.existsSync(candidate)) {
-          return candidate;
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // 3. VS Code 本体に必ず同梱されている ripgrep の探索 (WSL, Remote, Desktop すべてで有効)
+    // 2. VS Code 本体に同梱されている ripgrep の探索 (WSL, Remote, Desktop すべてで最優先)
+    // VS Code は各プラットフォーム(Linux/Mac/Windows)ごとの正規 ripgrep を必ず内蔵しています
     const appRoot = vscode.env.appRoot;
     if (appRoot) {
       const vscodeCandidates = [
         path.join(appRoot, 'node_modules', '@vscode', 'ripgrep', 'bin', binaryName),
         path.join(appRoot, 'node_modules.asar.unpacked', '@vscode', 'ripgrep', 'bin', binaryName),
         path.join(appRoot, 'node_modules', 'vscode-ripgrep', 'bin', binaryName),
-        path.join(appRoot, 'node_modules.asar.unpacked', 'vscode-ripgrep', 'bin', binaryName)
+        path.join(appRoot, 'node_modules.asar.unpacked', 'vscode-ripgrep', 'bin', binaryName),
+        path.join(appRoot, 'node_modules', '@vscode', `ripgrep-${process.platform}-${process.arch}`, 'bin', binaryName),
+        path.join(appRoot, '..', 'node_modules', '@vscode', 'ripgrep', 'bin', binaryName),
+        path.join(appRoot, '..', 'node_modules.asar.unpacked', '@vscode', 'ripgrep', 'bin', binaryName)
       ];
 
       for (const candidate of vscodeCandidates) {
-        try {
-          if (fs.existsSync(candidate)) {
-            return candidate;
-          }
-        } catch {
-          // ignore
+        if (this.isValidExecutable(candidate)) {
+          return candidate;
         }
+      }
+    }
+
+    // 3. 拡張機能自身のディレクトリ内のバイナリ探索 (現在のプラットフォームに合致するもののみ)
+    const extFsPath = this.extensionUri.fsPath;
+    const extensionCandidates = [
+      path.join(extFsPath, 'node_modules', '@vscode', `ripgrep-${process.platform}-${process.arch}`, 'bin', binaryName),
+      path.join(extFsPath, 'node_modules', `@vscode/ripgrep-${process.platform}-${process.arch}`, 'bin', binaryName),
+      path.join(extFsPath, 'node_modules', '@vscode', 'ripgrep', 'bin', binaryName),
+      path.join(extFsPath, 'node_modules', 'vscode-ripgrep', 'bin', binaryName)
+    ];
+
+    for (const candidate of extensionCandidates) {
+      if (this.isValidExecutable(candidate)) {
+        return candidate;
       }
     }
 
     // 4. フォールバック: システムの PATH 上の 'rg' (または 'rg.exe')
     return binaryName;
+  }
+
+  /**
+   * 指定されたパスのファイルが存在し、実行可能かどうかを検証する
+   * (Linux / macOS の場合は必要に応じて実行権限を付与)
+   */
+  private isValidExecutable(filePath: string): boolean {
+    try {
+      if (!fs.existsSync(filePath)) {
+        return false;
+      }
+
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) {
+        return false;
+      }
+
+      // Windows 以外の場合、実行権限を確認し、無ければ付与を試みる
+      if (process.platform !== 'win32') {
+        try {
+          fs.accessSync(filePath, fs.constants.X_OK);
+        } catch {
+          // 実行権限がない場合は付与を試みる
+          try {
+            fs.chmodSync(filePath, 0o755);
+          } catch {
+            // chmod 失敗時はそのまま
+          }
+        }
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -151,6 +178,11 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     // 使用する ripgrep のパスを解決
     const rgPath = this.resolveRipgrepPath();
 
+    // 検索対象エンコーディングを設定から取得
+    const config = vscode.workspace.getConfiguration('multiEncodingSearch');
+    const configuredEncodings = config.get<SupportedEncoding[]>('encodings', ['utf-8', 'euc-jp', 'shift_jis']);
+    options.targetEncodings = configuredEncodings.length > 0 ? configuredEncodings : ['utf-8', 'euc-jp', 'shift_jis'];
+
     // 検索開始を通知
     this.postMessageToWebview({ command: 'searchStart' });
 
@@ -182,7 +214,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       (errorMessage, errorType) => {
         let localizedMessage = errorMessage;
         if (errorType === 'rgNotFound') {
-          localizedMessage = vscode.l10n.t("ripgrep (rg) was not found. Please install ripgrep or specify its path in settings 'eucjpSearch.rgPath'.");
+          localizedMessage = vscode.l10n.t("ripgrep (rg) was not found. Please install ripgrep or specify its path in settings 'multiEncodingSearch.rgPath'.");
         }
         this.postMessageToWebview({
           command: 'searchError',
@@ -224,11 +256,18 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         viewColumn: vscode.ViewColumn.One
       });
 
-      // VS Code のエンコーディング名へ変換 (euc-jp -> eucjp, utf-8 -> utf8, shift_jis -> shiftjis)
+      // VS Code のエンコーディング名へ変換
       const vscodeEncodingMap: Record<SupportedEncoding, string> = {
-        'euc-jp': 'eucjp',
         'utf-8': 'utf8',
-        'shift_jis': 'shiftjis'
+        'euc-jp': 'eucjp',
+        'shift_jis': 'shiftjis',
+        'utf-16le': 'utf16le',
+        'utf-16be': 'utf16be',
+        'windows-1252': 'windows1252',
+        'gb18030': 'gb18030',
+        'gbk': 'gbk',
+        'big5': 'big5',
+        'euc-kr': 'euckr'
       };
       const targetEncoding = vscodeEncodingMap[encoding] || 'utf8';
 

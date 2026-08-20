@@ -4,4 +4,7 @@ src/**
 .gitignore
 tsconfig.json
 vscode-eucjp-search-extension-instructions.md
+DEVELOPMENT_NOTES.md
+test-samples/**
 **/*.map
+

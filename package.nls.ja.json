@@ -4,6 +4,6 @@
   "viewsContainers.multiEncodingSearch.title": "マルチ文字コード検索",
   "views.multiEncodingSearch.name": "マルチ文字コード検索",
   "config.title": "マルチ文字コード検索",
-  "config.defaultEncoding.description": "初期表示する検索用エンコーディング",
+  "config.encodings.description": "同時に並行検索する文字コード一覧。UTF-8, EUC-JP, Shift_JIS, UTF-16LE/BE, Windows-1252, GB18030, GBK, Big5, EUC-KR 等を指定できます。",
   "config.rgPath.description": "ripgrep の実行ファイル名またはフルパス (既定で同梱されています)"
 }

@@ -335,6 +335,33 @@ body {
   border: 1px solid rgba(206, 145, 120, 0.35);
 }
 
+.encoding-tag.utf-16le,
+.encoding-tag.utf-16be {
+  background-color: rgba(197, 134, 192, 0.2);
+  color: #c586c0;
+  border: 1px solid rgba(197, 134, 192, 0.35);
+}
+
+.encoding-tag.windows-1252 {
+  background-color: rgba(220, 220, 170, 0.2);
+  color: #dcdcaa;
+  border: 1px solid rgba(220, 220, 170, 0.35);
+}
+
+.encoding-tag.gb18030,
+.encoding-tag.gbk,
+.encoding-tag.big5 {
+  background-color: rgba(181, 206, 168, 0.2);
+  color: #b5cea8;
+  border: 1px solid rgba(181, 206, 168, 0.35);
+}
+
+.encoding-tag.euc-kr {
+  background-color: rgba(156, 220, 254, 0.2);
+  color: #9cdcfe;
+  border: 1px solid rgba(156, 220, 254, 0.35);
+}
+
 .match-count-badge {
   font-size: 10px;
   padding: 1px 6px;

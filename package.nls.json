@@ -4,6 +4,6 @@
   "viewsContainers.multiEncodingSearch.title": "Multi-Encoding Search",
   "views.multiEncodingSearch.name": "Multi-Encoding Search",
   "config.title": "Multi-Encoding Search",
-  "config.defaultEncoding.description": "Initial search encoding (euc-jp, utf-8, or shift_jis)",
+  "config.encodings.description": "List of character encodings to search simultaneously in parallel. Supports UTF-8, EUC-JP, Shift_JIS, UTF-16LE/BE, Windows-1252, GB18030, GBK, Big5, EUC-KR.",
   "config.rgPath.description": "ripgrep executable name or full path (bundled by default)"
 }

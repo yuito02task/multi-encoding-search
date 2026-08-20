@@ -6,8 +6,8 @@ import { SearchOptions, FileSearchResult, SearchMatch, SupportedEncoding } from 
 /** 検索結果の最大表示件数 */
 const MAX_MATCH_LIMIT = 10000;
 
-/** 自動検索する対象文字コード一覧 */
-const TARGET_ENCODINGS: SupportedEncoding[] = ['euc-jp', 'utf-8', 'shift_jis'];
+/** デフォルトで自動検索する対象文字コード一覧 (日本語主要文字コード) */
+const DEFAULT_TARGET_ENCODINGS: SupportedEncoding[] = ['utf-8', 'euc-jp', 'shift_jis'];
 
 /**
  * ripgrep の JSON 出力におけるマッチデータ構造
@@ -52,6 +52,12 @@ export class RipgrepRunner {
 
     this.isCancelledByUser = false;
 
+    // 検索対象の文字コード一覧 (指定がなければデフォルトの日本語主要3文字コード)
+    const encodingsToSearch: SupportedEncoding[] =
+      options.targetEncodings && options.targetEncodings.length > 0
+        ? options.targetEncodings
+        : DEFAULT_TARGET_ENCODINGS;
+
     // 検索結果を蓄積するマップ (ファイルパス -> FileSearchResult)
     const fileResultMap = new Map<string, FileSearchResult>();
     // 重複防止用セット (filePath:lineNumber:columnNumber -> true)
@@ -64,19 +70,30 @@ export class RipgrepRunner {
 
     // 段階的な進捗更新のためのスロットリング用タイマー
     let progressUpdateTimer: NodeJS.Timeout | null = null;
+    let hasNotifiedInitialProgress = false;
+
     const notifyProgress = () => {
+      // 最初のヒット時は待ち時間なしで即座にUIに反映して体感速度を高める
+      if (!hasNotifiedInitialProgress) {
+        hasNotifiedInitialProgress = true;
+        const results = Array.from(fileResultMap.values());
+        onProgress(results, totalMatchCount, results.length, isTruncated);
+        return;
+      }
+
       if (progressUpdateTimer) {
         return;
       }
+
       progressUpdateTimer = setTimeout(() => {
         progressUpdateTimer = null;
         const results = Array.from(fileResultMap.values());
         onProgress(results, totalMatchCount, results.length, isTruncated);
-      }, 100);
+      }, 60);
     };
 
     // 各エンコーディングに対して ripgrep プロセスを起動
-    for (const encoding of TARGET_ENCODINGS) {
+    for (const encoding of encodingsToSearch) {
       const args = this.buildRipgrepArgs(options, workspaceFolders, encoding);
 
       try {
@@ -177,7 +194,7 @@ export class RipgrepRunner {
           }
 
           // 全エンコーディングの検索が完了した場合
-          if (completedCount >= TARGET_ENCODINGS.length) {
+          if (completedCount >= encodingsToSearch.length) {
             if (progressUpdateTimer) {
               clearTimeout(progressUpdateTimer);
             }

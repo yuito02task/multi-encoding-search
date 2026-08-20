@@ -31,6 +31,10 @@
   const statusContainer = /** @type {HTMLElement} */ (document.getElementById('statusContainer'));
   const resultsContainer = /** @type {HTMLElement} */ (document.getElementById('resultsContainer'));
 
+    // DOM キャッシュ: ファイルごとの要素情報を管理 (差分レンダリング用)
+  /** @type {Map<string, { container: HTMLElement, matchList: HTMLElement, badge: HTMLElement, renderedCount: number }>} */
+  const fileDomMap = new Map();
+
   // 検索状態の管理
   let isSearching = false;
   let isCaseSensitive = false;
@@ -154,6 +158,28 @@
   // 結果クリア
   function clearResults() {
     resultsContainer.innerHTML = '';
+    fileDomMap.clear();
+  }
+
+  /**
+   * カウント文言のフォーマット
+   * @param {number} totalFiles
+   * @param {number} totalMatches
+   * @param {boolean} isTruncated
+   * @returns {string}
+   */
+  function formatMatchCountText(totalFiles, totalMatches, isTruncated) {
+    let text = '';
+    const isJa = i18n.autoEncodingBadge && i18n.autoEncodingBadge.includes('自動');
+    if (isJa) {
+      text = `${totalFiles} 個のファイルで ${totalMatches} 件の一致`;
+    } else {
+      text = `${totalFiles} files / ${totalMatches} matches`;
+    }
+    if (isTruncated) {
+      text += i18n.resultsTruncated;
+    }
+    return text;
   }
 
   // 拡張機能ホストからのメッセージ受信
@@ -166,12 +192,17 @@
         btnSearch.textContent = i18n.stopBtn;
         btnSearch.style.backgroundColor = 'var(--vscode-errorForeground, #d9534f)';
         statusContainer.className = 'status-container';
-        statusContainer.innerHTML = `<span class="spinner"></span> ${i18n.searching}`;
+        statusContainer.innerHTML = `<span class="spinner"></span> <span>${i18n.searching}</span>`;
         clearResults();
         break;
 
       case 'searchProgress':
-        renderResults(message.results, message.totalMatches, message.totalFiles, message.isTruncated);
+        // 差分（インクリメンタル）レンダリングで即時ストリーミング表示
+        renderIncrementalResults(message.results);
+        if (message.totalMatches > 0) {
+          statusContainer.className = 'status-container';
+          statusContainer.innerHTML = `<span class="spinner"></span> <span>${i18n.searching} (${formatMatchCountText(message.totalFiles, message.totalMatches, message.isTruncated)})</span>`;
+        }
         break;
 
       case 'searchComplete':
@@ -184,15 +215,7 @@
           clearResults();
         } else {
           statusContainer.className = 'status-container';
-          let text = `${message.totalFiles} files / ${message.totalMatches} matches`;
-          // 日本語ロケール判定またはフォーマット
-          if (i18n.autoEncodingBadge.includes('自動')) {
-            text = `${message.totalFiles} 個のファイルで ${message.totalMatches} 件の一致`;
-          }
-          if (message.isTruncated) {
-            text += i18n.resultsTruncated;
-          }
-          statusContainer.textContent = text;
+          statusContainer.textContent = formatMatchCountText(message.totalFiles, message.totalMatches, message.isTruncated);
         }
         break;
 
@@ -270,108 +293,144 @@
     if (enc === 'euc-jp') return 'EUC-JP';
     if (enc === 'utf-8') return 'UTF-8';
     if (enc === 'shift_jis') return 'SJIS';
+    if (enc === 'utf-16le') return 'UTF-16LE';
+    if (enc === 'utf-16be') return 'UTF-16BE';
+    if (enc === 'windows-1252') return 'CP1252';
+    if (enc === 'gb18030') return 'GB18030';
+    if (enc === 'gbk') return 'GBK';
+    if (enc === 'big5') return 'BIG5';
+    if (enc === 'euc-kr') return 'EUC-KR';
     return enc.toUpperCase();
   }
 
   /**
-   * 検索結果の描画
+   * 単一のマッチアイテムDOM要素を生成する
+   * @param {any} file
+   * @param {any} match
+   * @returns {HTMLElement}
    */
-  function renderResults(fileResults, totalMatches, totalFiles, isTruncated) {
-    resultsContainer.innerHTML = '';
+  function createMatchItemElement(file, match) {
+    const matchItem = document.createElement('div');
+    matchItem.className = 'match-item';
+    matchItem.title = `${file.relativePath}:${match.lineNumber}:${match.columnNumber} [${formatEncodingName(match.encoding)}]`;
+
+    const posSpan = document.createElement('span');
+    posSpan.className = 'match-position';
+    posSpan.textContent = `${match.lineNumber}:${match.columnNumber}`;
+
+    const previewSpan = document.createElement('span');
+    previewSpan.className = 'match-preview';
+    previewSpan.innerHTML = buildHighlightedLineHtml(match.lineText, match.submatches);
+
+    matchItem.appendChild(posSpan);
+    matchItem.appendChild(previewSpan);
+
+    // クリックでファイルを開いて文字コード自動適用＆ジャンプ
+    matchItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const matchLength = match.submatches && match.submatches[0]
+        ? match.submatches[0].end - match.submatches[0].start
+        : 1;
+
+      vscode.postMessage({
+        command: 'openFile',
+        filePath: file.filePath,
+        line: match.lineNumber,
+        column: match.columnNumber,
+        length: matchLength,
+        encoding: match.encoding
+      });
+    });
+
+    return matchItem;
+  }
+
+  /**
+   * 検索結果のインクリメンタル（差分）レンダリング
+   * 既存のDOM要素を再利用し、新たに追加されたファイル/マッチ行のみを追記
+   * @param {Array<any>} fileResults
+   */
+  function renderIncrementalResults(fileResults) {
+    const fragment = document.createDocumentFragment();
 
     for (const file of fileResults) {
-      const fileGroup = document.createElement('div');
-      fileGroup.className = 'file-group';
+      let fileDom = fileDomMap.get(file.filePath);
 
-      // ファイルヘッダー
-      const fileHeader = document.createElement('div');
-      fileHeader.className = 'file-header';
-      fileHeader.title = file.filePath;
+      if (!fileDom) {
+        // 新規ファイルグループ要素の作成
+        const fileGroup = document.createElement('div');
+        fileGroup.className = 'file-group';
 
-      const toggleIcon = document.createElement('span');
-      toggleIcon.className = 'file-toggle-icon expanded';
-      toggleIcon.textContent = '▸';
+        const fileHeader = document.createElement('div');
+        fileHeader.className = 'file-header';
+        fileHeader.title = file.filePath;
 
-      const filePathSpan = document.createElement('span');
-      filePathSpan.className = 'file-path';
-      filePathSpan.textContent = file.relativePath;
+        const toggleIcon = document.createElement('span');
+        toggleIcon.className = 'file-toggle-icon expanded';
+        toggleIcon.textContent = '▸';
 
-      // プライマリエンコーディングタグ (EUC-JP / UTF-8 / SJIS)
-      const encTag = document.createElement('span');
-      const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'euc-jp';
-      encTag.className = `encoding-tag ${primaryEnc}`;
-      encTag.textContent = formatEncodingName(primaryEnc);
+        const filePathSpan = document.createElement('span');
+        filePathSpan.className = 'file-path';
+        filePathSpan.textContent = file.relativePath;
 
-      const badge = document.createElement('span');
-      badge.className = 'match-count-badge';
-      badge.textContent = file.matches.length.toString();
+        const encTag = document.createElement('span');
+        const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'euc-jp';
+        encTag.className = `encoding-tag ${primaryEnc}`;
+        encTag.textContent = formatEncodingName(primaryEnc);
 
-      fileHeader.appendChild(toggleIcon);
-      fileHeader.appendChild(filePathSpan);
-      fileHeader.appendChild(encTag);
-      fileHeader.appendChild(badge);
+        const badge = document.createElement('span');
+        badge.className = 'match-count-badge';
+        badge.textContent = file.matches.length.toString();
 
-      // マッチ行リスト
-      const matchList = document.createElement('div');
-      matchList.className = 'match-list';
+        fileHeader.appendChild(toggleIcon);
+        fileHeader.appendChild(filePathSpan);
+        fileHeader.appendChild(encTag);
+        fileHeader.appendChild(badge);
 
-      // ヘッダークリックで開閉トグル
-      fileHeader.addEventListener('click', () => {
-        const isHidden = matchList.classList.toggle('hidden');
-        toggleIcon.classList.toggle('expanded', !isHidden);
-      });
+        const matchList = document.createElement('div');
+        matchList.className = 'match-list';
 
-      // 各マッチ行アイテムの生成
-      for (const match of file.matches) {
-        const matchItem = document.createElement('div');
-        matchItem.className = 'match-item';
-        matchItem.title = `${file.relativePath}:${match.lineNumber}:${match.columnNumber} [${formatEncodingName(match.encoding)}]`;
-
-        const posSpan = document.createElement('span');
-        posSpan.className = 'match-position';
-        posSpan.textContent = `${match.lineNumber}:${match.columnNumber}`;
-
-        const previewSpan = document.createElement('span');
-        previewSpan.className = 'match-preview';
-        previewSpan.innerHTML = buildHighlightedLineHtml(match.lineText, match.submatches);
-
-        matchItem.appendChild(posSpan);
-        matchItem.appendChild(previewSpan);
-
-        // クリックでファイルを開いて文字コード自動適用＆ジャンプ
-        matchItem.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const matchLength = match.submatches[0]
-            ? match.submatches[0].end - match.submatches[0].start
-            : 1;
-
-          vscode.postMessage({
-            command: 'openFile',
-            filePath: file.filePath,
-            line: match.lineNumber,
-            column: match.columnNumber,
-            length: matchLength,
-            encoding: match.encoding
-          });
+        // ヘッダークリックで開閉トグル
+        fileHeader.addEventListener('click', () => {
+          const isHidden = matchList.classList.toggle('hidden');
+          toggleIcon.classList.toggle('expanded', !isHidden);
         });
 
-        matchList.appendChild(matchItem);
-      }
+        // 初回マッチ行の追加
+        for (let i = 0; i < file.matches.length; i++) {
+          const matchElem = createMatchItemElement(file, file.matches[i]);
+          matchList.appendChild(matchElem);
+        }
 
-      fileGroup.appendChild(fileHeader);
-      fileGroup.appendChild(matchList);
-      resultsContainer.appendChild(fileGroup);
+        fileGroup.appendChild(fileHeader);
+        fileGroup.appendChild(matchList);
+
+        fileDom = {
+          container: fileGroup,
+          matchList: matchList,
+          badge: badge,
+          renderedCount: file.matches.length
+        };
+
+        fileDomMap.set(file.filePath, fileDom);
+        fragment.appendChild(fileGroup);
+      } else {
+        // 既存ファイルグループへの差分追記
+        if (file.matches.length > fileDom.renderedCount) {
+          const matchFragment = document.createDocumentFragment();
+          for (let i = fileDom.renderedCount; i < file.matches.length; i++) {
+            const matchElem = createMatchItemElement(file, file.matches[i]);
+            matchFragment.appendChild(matchElem);
+          }
+          fileDom.matchList.appendChild(matchFragment);
+          fileDom.renderedCount = file.matches.length;
+          fileDom.badge.textContent = file.matches.length.toString();
+        }
+      }
     }
 
-    if (totalMatches > 0) {
-      let text = `${totalFiles} files / ${totalMatches} matches`;
-      if (i18n.autoEncodingBadge === '⚡ 自動判別') {
-        text = `${totalFiles} 個のファイルで ${totalMatches} 件の一致`;
-      }
-      if (isTruncated) {
-        text += i18n.resultsTruncated;
-      }
-      statusContainer.textContent = text;
+    if (fragment.childNodes.length > 0) {
+      resultsContainer.appendChild(fragment);
     }
   }
 })();
