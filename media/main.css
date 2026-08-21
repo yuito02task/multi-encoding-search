@@ -1,5 +1,5 @@
 /* ==========================================================================
-   EUC-JP Search Webview スタイルシート
+   Multi-Encoding Search Webview スタイルシート
    VS Code のテーマ変数 (--vscode-*) を活用し、標準検索タブに統一したデザイン
    ========================================================================== */
 
@@ -13,21 +13,38 @@
   padding: 0;
 }
 
+html, body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 body {
   font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   font-size: var(--vscode-font-size, 13px);
   color: var(--vscode-foreground);
   background-color: var(--vscode-sideBar-background);
-  padding: var(--container-padding);
   user-select: none;
-  overflow-x: hidden;
 }
 
-/* 検索全体コンテナ */
+/* 検索全体コンテナ (画面全体を占有する Flex 列レイアウト) */
 .search-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: var(--container-padding);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 固定上部ヘッダー (検索入力・オプション・詳細条件・ステータス) */
+.search-header {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 /* 検索入力行 */
@@ -255,13 +272,17 @@ body {
   }
 }
 
-/* 検索結果一覧コンテナ */
+/* 検索結果一覧コンテナ (残りの高さを占有して縦スクロール) */
 .results-container {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-top: 4px;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
 }
 
 /* ファイルグループ */

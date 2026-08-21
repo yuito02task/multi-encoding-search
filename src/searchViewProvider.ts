@@ -491,53 +491,56 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="${styleUri}">
-  <title>EUC-JP Search</title>
+  <title>Multi-Encoding Search</title>
 </head>
 <body>
   <div class="search-container">
-    <!-- 検索入力行 -->
-    <div class="search-input-wrapper">
-      <div class="input-box-container">
-        <input type="text" id="searchInput" class="search-input" placeholder="${i18n.searchPlaceholder}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-        <div class="input-actions">
-          <button id="btnCaseSensitive" class="icon-toggle-btn" title="${i18n.matchCase}">
-            <span class="toggle-icon">Aa</span>
-          </button>
-          <button id="btnWordMatch" class="icon-toggle-btn" title="${i18n.matchWholeWord}">
-            <span class="toggle-icon">\\b</span>
-          </button>
-          <button id="btnRegex" class="icon-toggle-btn" title="${i18n.useRegularExpression}">
-            <span class="toggle-icon">.*</span>
-          </button>
+    <!-- 固定上部ヘッダー領域 (検索入力・オプション・詳細・ステータス) -->
+    <div class="search-header">
+      <!-- 検索入力行 -->
+      <div class="search-input-wrapper">
+        <div class="input-box-container">
+          <input type="text" id="searchInput" class="search-input" placeholder="${i18n.searchPlaceholder}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <div class="input-actions">
+            <button id="btnCaseSensitive" class="icon-toggle-btn" title="${i18n.matchCase}">
+              <span class="toggle-icon">Aa</span>
+            </button>
+            <button id="btnWordMatch" class="icon-toggle-btn" title="${i18n.matchWholeWord}">
+              <span class="toggle-icon">\\b</span>
+            </button>
+            <button id="btnRegex" class="icon-toggle-btn" title="${i18n.useRegularExpression}">
+              <span class="toggle-icon">.*</span>
+            </button>
+          </div>
+        </div>
+        <button id="btnSearch" class="primary-btn" title="${i18n.searchBtn} (Enter)">${i18n.searchBtn}</button>
+      </div>
+
+      <!-- オプション行 (自動判定バッジ & 詳細トグル) -->
+      <div class="search-options-row">
+        <span class="auto-encoding-badge" title="${i18n.autoEncodingBadgeTitle}">${i18n.autoEncodingBadge}</span>
+        <button id="btnToggleDetails" class="details-toggle-btn" title="${i18n.detailsToggleTitle}">
+          <span id="detailsToggleIcon" class="codicon-arrow">▸</span> ${i18n.detailsToggle}
+        </button>
+      </div>
+
+      <!-- 詳細条件 (include / exclude) -->
+      <div id="detailsContainer" class="details-container hidden">
+        <div class="details-field">
+          <label for="includeInput" class="field-label">${i18n.filesToInclude}:</label>
+          <input type="text" id="includeInput" class="details-input" placeholder="${i18n.filesToIncludePlaceholder}" />
+        </div>
+        <div class="details-field">
+          <label for="excludeInput" class="field-label">${i18n.filesToExclude}:</label>
+          <input type="text" id="excludeInput" class="details-input" placeholder="${i18n.filesToExcludePlaceholder}" />
         </div>
       </div>
-      <button id="btnSearch" class="primary-btn" title="${i18n.searchBtn} (Enter)">${i18n.searchBtn}</button>
+
+      <!-- 検索状況・メッセージ表示領域 -->
+      <div id="statusContainer" class="status-container"></div>
     </div>
 
-    <!-- オプション行 (自動判定バッジ & 詳細トグル) -->
-    <div class="search-options-row">
-      <span class="auto-encoding-badge" title="${i18n.autoEncodingBadgeTitle}">${i18n.autoEncodingBadge}</span>
-      <button id="btnToggleDetails" class="details-toggle-btn" title="${i18n.detailsToggleTitle}">
-        <span id="detailsToggleIcon" class="codicon-arrow">▸</span> ${i18n.detailsToggle}
-      </button>
-    </div>
-
-    <!-- 詳細条件 (include / exclude) -->
-    <div id="detailsContainer" class="details-container hidden">
-      <div class="details-field">
-        <label for="includeInput" class="field-label">${i18n.filesToInclude}:</label>
-        <input type="text" id="includeInput" class="details-input" placeholder="${i18n.filesToIncludePlaceholder}" />
-      </div>
-      <div class="details-field">
-        <label for="excludeInput" class="field-label">${i18n.filesToExclude}:</label>
-        <input type="text" id="excludeInput" class="details-input" placeholder="${i18n.filesToExcludePlaceholder}" />
-      </div>
-    </div>
-
-    <!-- 検索状況・メッセージ表示領域 -->
-    <div id="statusContainer" class="status-container"></div>
-
-    <!-- 検索結果一覧表示領域 -->
+    <!-- 検索結果一覧表示領域 (スクロール可能領域) -->
     <div id="resultsContainer" class="results-container"></div>
   </div>
 
