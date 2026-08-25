@@ -236,18 +236,27 @@ export class RipgrepRunner {
       });
     }
 
-    // ファイル同士をディレクトリ階層順 ＞ ファイル名順でソート (VS Code 標準検索に準拠)
+    // ファイル同士を「ディレクトリ階層順 ＞ 拡張子順 ＞ ファイル名順」でソート
     results.sort((a, b) => {
       // 1. ディレクトリパスの比較
       if (a.dirPath !== b.dirPath) {
-        // ルート直下 (dirPath が空) は先に表示するか後に表示するか
-        // VS Code 標準ではパス階層のアルファベット順比較
         const dirCompare = a.dirPath.localeCompare(b.dirPath, undefined, { numeric: true, sensitivity: 'base' });
         if (dirCompare !== 0) {
           return dirCompare;
         }
       }
-      // 2. ディレクトリが同一ならファイル名で比較
+
+      // 2. ディレクトリが同一ならファイル拡張子で比較
+      const extA = path.extname(a.fileName).toLowerCase();
+      const extB = path.extname(b.fileName).toLowerCase();
+      if (extA !== extB) {
+        const extCompare = extA.localeCompare(extB, undefined, { numeric: true, sensitivity: 'base' });
+        if (extCompare !== 0) {
+          return extCompare;
+        }
+      }
+
+      // 3. 拡張子も同一ならファイル名で比較
       return a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: 'base' });
     });
 
