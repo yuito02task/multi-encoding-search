@@ -2,7 +2,7 @@
   "name": "multi-encoding-search",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "yuitomaruyama",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -131,6 +131,38 @@
           "type": "string",
           "default": "rg",
           "description": "%config.rgPath.description%"
+        },
+        "multiEncodingSearch.results.fontSize": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 32,
+          "description": "%config.results.fontSize.description%"
+        },
+        "multiEncodingSearch.results.fontFamily": {
+          "type": "string",
+          "default": "",
+          "description": "%config.results.fontFamily.description%"
+        },
+        "multiEncodingSearch.results.matchHighlightBackground": {
+          "type": "string",
+          "default": "",
+          "description": "%config.results.matchHighlightBackground.description%"
+        },
+        "multiEncodingSearch.results.matchHighlightForeground": {
+          "type": "string",
+          "default": "",
+          "description": "%config.results.matchHighlightForeground.description%"
+        },
+        "multiEncodingSearch.results.textColor": {
+          "type": "string",
+          "default": "",
+          "description": "%config.results.textColor.description%"
+        },
+        "multiEncodingSearch.results.secondaryTextColor": {
+          "type": "string",
+          "default": "",
+          "description": "%config.results.secondaryTextColor.description%"
         }
       }
     }

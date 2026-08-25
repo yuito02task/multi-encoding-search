@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as childProcess from 'child_process';
 import { RipgrepRunner } from './ripgrepRunner';
-import { SearchOptions, WebviewMessage, ExtensionMessage, SupportedEncoding } from './types';
+import { SearchOptions, WebviewMessage, ExtensionMessage, SupportedEncoding, ResultDisplaySettings } from './types';
 
 /**
  * マルチ文字コード検索のサイドバー WebviewView プロバイダー
@@ -16,6 +16,31 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
 
   constructor(private readonly extensionUri: vscode.Uri) {
     this.runner = new RipgrepRunner();
+
+    // 設定変更の監視 (フォントサイズや色の変更を即座に Webview へ通知)
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('multiEncodingSearch.results')) {
+        this.postMessageToWebview({
+          command: 'updateSettings',
+          settings: this.getDisplaySettings()
+        });
+      }
+    });
+  }
+
+  /**
+   * 現在の表示カスタマイズ設定を取得する
+   */
+  private getDisplaySettings(): ResultDisplaySettings {
+    const config = vscode.workspace.getConfiguration('multiEncodingSearch.results');
+    return {
+      fontSize: config.get<number>('fontSize', 0),
+      fontFamily: config.get<string>('fontFamily', ''),
+      matchHighlightBackground: config.get<string>('matchHighlightBackground', ''),
+      matchHighlightForeground: config.get<string>('matchHighlightForeground', ''),
+      textColor: config.get<string>('textColor', ''),
+      secondaryTextColor: config.get<string>('secondaryTextColor', '')
+    };
   }
 
   /**
@@ -251,8 +276,16 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           message.line,
           message.column,
           message.length,
-          message.encoding
+          message.encoding,
+          message.matchText
         );
+        break;
+
+      case 'requestSettings':
+        this.postMessageToWebview({
+          command: 'updateSettings',
+          settings: this.getDisplaySettings()
+        });
         break;
     }
   }
@@ -330,25 +363,18 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     line: number,
     column: number,
     length: number,
-    encoding: SupportedEncoding
+    encoding: SupportedEncoding,
+    matchText?: string
   ): Promise<void> {
     try {
       const fileUri = vscode.Uri.file(filePath);
       const doc = await vscode.workspace.openTextDocument(fileUri);
 
-      // VS Code の行番号・列番号は 0 始まり
-      const startLine = Math.max(0, line - 1);
-      const startCol = Math.max(0, column - 1);
-      const endCol = startCol + Math.max(1, length);
-
-      const selectionRange = new vscode.Range(
-        new vscode.Position(startLine, startCol),
-        new vscode.Position(startLine, endCol)
-      );
+      // VS Code の行番号は 0 始まり
+      const targetLine = Math.max(0, line - 1);
 
       // エディタで開く
       const editor = await vscode.window.showTextDocument(doc, {
-        selection: selectionRange,
         preview: true,
         viewColumn: vscode.ViewColumn.One
       });
@@ -375,13 +401,43 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         // コマンドがサポートされていない環境ではフォールバック
       }
 
-      // 再読み込み後に再度カーソル位置・選択範囲を調整
-      if (editor && editor.document) {
-        editor.selection = new vscode.Selection(
-          new vscode.Position(startLine, startCol),
-          new vscode.Position(startLine, endCol)
+      // 再読み込み後、アクティブなエディタのドキュメントから正確な位置を算出
+      const activeEditor = vscode.window.activeTextEditor || editor;
+      if (activeEditor && activeEditor.document) {
+        const currentDoc = activeEditor.document;
+        let startCol = Math.max(0, column - 1);
+        let matchLength = Math.max(1, length);
+
+        // 実際の行テキストから matchText の位置を照合して完全に一致させる
+        if (targetLine < currentDoc.lineCount) {
+          const lineText = currentDoc.lineAt(targetLine).text;
+          if (matchText && matchText.length > 0) {
+            matchLength = matchText.length;
+            // 指定された column 付近から matchText を探す
+            const exactIdx = lineText.indexOf(matchText, Math.max(0, startCol - 5));
+            if (exactIdx !== -1) {
+              startCol = exactIdx;
+            } else {
+              // 行頭から再検索
+              const fallbackIdx = lineText.indexOf(matchText);
+              if (fallbackIdx !== -1) {
+                startCol = fallbackIdx;
+              }
+            }
+          }
+        }
+
+        const endCol = startCol + matchLength;
+        const selectionRange = new vscode.Range(
+          new vscode.Position(targetLine, startCol),
+          new vscode.Position(targetLine, endCol)
         );
-        editor.revealRange(selectionRange, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+
+        activeEditor.selection = new vscode.Selection(
+          new vscode.Position(targetLine, startCol),
+          new vscode.Position(targetLine, endCol)
+        );
+        activeEditor.revealRange(selectionRange, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
       }
     } catch (error: any) {
       const errMsg = vscode.l10n.t('Failed to open file: {0} ({1})', filePath, error?.message || error);
@@ -546,6 +602,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
 
   <script nonce="${nonce}">
     window.i18nStrings = ${JSON.stringify(i18n)};
+    window.initialSettings = ${JSON.stringify(this.getDisplaySettings())};
   </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

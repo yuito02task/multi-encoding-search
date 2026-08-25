@@ -5,6 +5,12 @@
 
 :root {
   --container-padding: 10px;
+  --search-font-size: var(--vscode-font-size, 13px);
+  --search-font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+  --search-highlight-bg: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+  --search-highlight-fg: inherit;
+  --search-text-color: var(--vscode-foreground);
+  --search-secondary-color: var(--vscode-descriptionForeground);
 }
 
 * {
@@ -290,15 +296,14 @@ body {
   margin-bottom: 2px;
 }
 
-/* ファイルヘッダー */
+/* ファイルヘッダー (VS Code 標準ライクなデザイン) */
 .file-header {
   display: flex;
   align-items: center;
   padding: 3px 4px;
   cursor: pointer;
   border-radius: 3px;
-  font-weight: 500;
-  gap: 5px;
+  gap: 6px;
 }
 
 .file-header:hover {
@@ -311,18 +316,41 @@ body {
   transition: transform 0.15s ease;
   width: 12px;
   text-align: center;
+  flex-shrink: 0;
 }
 
 .file-toggle-icon.expanded {
   transform: rotate(90deg);
 }
 
-.file-path {
+/* ファイル名＋ディレクトリの表示コンテナ */
+.file-label-container {
   flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ファイル名 (メイン表示: 強調) */
+.file-name {
+  font-size: var(--search-font-size);
+  font-weight: 600;
+  color: var(--search-text-color);
+  flex-shrink: 0;
+}
+
+/* ディレクトリパス (サブ表示: 薄い文字色) */
+.file-dir {
+  font-size: calc(var(--search-font-size) - 1px);
+  color: var(--search-secondary-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  opacity: 0.8;
 }
 
 /* エンコーディングタグ */
@@ -336,6 +364,7 @@ body {
   text-transform: uppercase;
   font-weight: bold;
   letter-spacing: 0.5px;
+  flex-shrink: 0;
 }
 
 .encoding-tag.euc-jp {
@@ -390,6 +419,7 @@ body {
   background-color: var(--vscode-badge-background, #4d4d4d);
   color: var(--vscode-badge-foreground, #ffffff);
   font-weight: normal;
+  flex-shrink: 0;
 }
 
 /* マッチ行リスト */
@@ -410,8 +440,8 @@ body {
   padding: 2px 4px;
   cursor: pointer;
   border-radius: 2px;
-  font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
-  font-size: 11px;
+  font-family: var(--search-font-family);
+  font-size: var(--search-font-size);
   gap: 6px;
   overflow: hidden;
 }
@@ -427,11 +457,11 @@ body {
 
 /* 行:列番号バッジ */
 .match-position {
-  color: var(--vscode-editorLineNumber-foreground, #858585);
+  color: var(--search-secondary-color);
   min-width: 48px;
   text-align: right;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: calc(var(--search-font-size) - 1px);
 }
 
 /* 行プレビューテキスト */
@@ -440,13 +470,14 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: pre;
-  color: var(--vscode-foreground);
+  color: var(--search-text-color);
+  font-size: var(--search-font-size);
 }
 
 /* 一致箇所のハイライト */
 .match-highlight {
-  background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
-  color: inherit;
+  background-color: var(--search-highlight-bg);
+  color: var(--search-highlight-fg);
   border-radius: 1px;
   font-weight: bold;
 }

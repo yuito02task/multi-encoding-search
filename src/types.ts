@@ -64,6 +64,24 @@ export interface SearchMatch {
 }
 
 /**
+ * 検索結果の表示カスタマイズ設定
+ */
+export interface ResultDisplaySettings {
+  /** フォントサイズ (px または空文字/0でデフォルト) */
+  fontSize?: number;
+  /** フォントファミリ (未指定時はデフォルト) */
+  fontFamily?: string;
+  /** マッチ箇所のハイライト背景色 */
+  matchHighlightBackground?: string;
+  /** マッチ箇所のハイライト文字色 */
+  matchHighlightForeground?: string;
+  /** 検索結果プレビューの文字色 */
+  textColor?: string;
+  /** 行番号・ディレクトリパスの文字色 */
+  secondaryTextColor?: string;
+}
+
+/**
  * ファイルごとの検索結果グループ
  */
 export interface FileSearchResult {
@@ -71,6 +89,10 @@ export interface FileSearchResult {
   filePath: string;
   /** ワークスペースからの相対パス */
   relativePath: string;
+  /** ファイル名 (例: index.ts) */
+  fileName: string;
+  /** 所属ディレクトリパス (例: src/utils) */
+  dirPath: string;
   /** このファイル内のマッチ一覧 */
   matches: SearchMatch[];
   /** 主な文字エンコーディング */
@@ -83,7 +105,8 @@ export interface FileSearchResult {
 export type WebviewMessage =
   | { command: 'search'; options: SearchOptions }
   | { command: 'cancel' }
-  | { command: 'openFile'; filePath: string; line: number; column: number; length: number; encoding: SupportedEncoding };
+  | { command: 'openFile'; filePath: string; line: number; column: number; length: number; encoding: SupportedEncoding; matchText?: string }
+  | { command: 'requestSettings' };
 
 /**
  * 拡張機能ホストから Webview へ送信されるメッセージの型定義
@@ -93,4 +116,6 @@ export type ExtensionMessage =
   | { command: 'searchProgress'; results: FileSearchResult[]; totalMatches: number; totalFiles: number; isTruncated: boolean }
   | { command: 'searchComplete'; totalMatches: number; totalFiles: number; isTruncated: boolean }
   | { command: 'searchError'; errorMessage: string; errorType?: 'rgNotFound' | 'invalidRegex' | 'other' }
-  | { command: 'searchCancelled' };
+  | { command: 'searchCancelled' }
+  | { command: 'updateSettings'; settings: ResultDisplaySettings };
+

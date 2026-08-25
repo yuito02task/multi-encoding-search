@@ -41,6 +41,58 @@
   let isWordMatch = false;
   let isRegex = false;
 
+  // 設定の適用 (カスタムプロパティを動的に上書き)
+  /**
+   * @param {any} settings
+   */
+  function applySettings(settings) {
+    if (!settings) return;
+    const root = document.documentElement;
+
+    if (settings.fontSize && settings.fontSize > 0) {
+      root.style.setProperty('--search-font-size', `${settings.fontSize}px`);
+    } else {
+      root.style.removeProperty('--search-font-size');
+    }
+
+    if (settings.fontFamily && settings.fontFamily.trim()) {
+      root.style.setProperty('--search-font-family', settings.fontFamily.trim());
+    } else {
+      root.style.removeProperty('--search-font-family');
+    }
+
+    if (settings.matchHighlightBackground && settings.matchHighlightBackground.trim()) {
+      root.style.setProperty('--search-highlight-bg', settings.matchHighlightBackground.trim());
+    } else {
+      root.style.removeProperty('--search-highlight-bg');
+    }
+
+    if (settings.matchHighlightForeground && settings.matchHighlightForeground.trim()) {
+      root.style.setProperty('--search-highlight-fg', settings.matchHighlightForeground.trim());
+    } else {
+      root.style.removeProperty('--search-highlight-fg');
+    }
+
+    if (settings.textColor && settings.textColor.trim()) {
+      root.style.setProperty('--search-text-color', settings.textColor.trim());
+    } else {
+      root.style.removeProperty('--search-text-color');
+    }
+
+    if (settings.secondaryTextColor && settings.secondaryTextColor.trim()) {
+      root.style.setProperty('--search-secondary-color', settings.secondaryTextColor.trim());
+    } else {
+      root.style.removeProperty('--search-secondary-color');
+    }
+  }
+
+  // 初期設定の適用
+  // @ts-ignore
+  if (window.initialSettings) {
+    // @ts-ignore
+    applySettings(window.initialSettings);
+  }
+
   // 永続化ステートの復元
   const previousState = vscode.getState() || {};
   if (previousState.pattern) {
@@ -187,6 +239,10 @@
     const message = event.data;
 
     switch (message.command) {
+      case 'updateSettings':
+        applySettings(message.settings);
+        break;
+
       case 'searchStart':
         isSearching = true;
         btnSearch.textContent = i18n.stopBtn;
@@ -197,7 +253,7 @@
         break;
 
       case 'searchProgress':
-        // 差分（インクリメンタル）レンダリングで即時ストリーミング表示
+        // 差分（インクリメンタル）レンダリングで即時ストリーミング表示 (ソート順を維持)
         renderIncrementalResults(message.results);
         if (message.totalMatches > 0) {
           statusContainer.className = 'status-container';
@@ -254,7 +310,7 @@
   /**
    * マッチ箇所のハイライトを含むHTML文字列を生成する
    * @param {string} lineText
-   * @param {Array<{start: number, end: number}>} submatches
+   * @param {Array<{matchText?: string, start: number, end: number}>} submatches
    * @returns {string}
    */
   function buildHighlightedLineHtml(lineText, submatches) {
@@ -266,6 +322,7 @@
     let lastIndex = 0;
 
     for (const sub of submatches) {
+      if (sub.start < lastIndex) continue;
       // マッチ前の通常テキスト
       if (sub.start > lastIndex) {
         html += escapeHtml(lineText.substring(lastIndex, sub.start));
@@ -328,9 +385,9 @@
     // クリックでファイルを開いて文字コード自動適用＆ジャンプ
     matchItem.addEventListener('click', (e) => {
       e.stopPropagation();
-      const matchLength = match.submatches && match.submatches[0]
-        ? match.submatches[0].end - match.submatches[0].start
-        : 1;
+      const firstSub = match.submatches && match.submatches[0];
+      const matchLength = firstSub ? firstSub.end - firstSub.start : 1;
+      const matchText = firstSub ? firstSub.matchText : '';
 
       vscode.postMessage({
         command: 'openFile',
@@ -338,7 +395,8 @@
         line: match.lineNumber,
         column: match.columnNumber,
         length: matchLength,
-        encoding: match.encoding
+        encoding: match.encoding,
+        matchText
       });
     });
 
@@ -348,11 +406,10 @@
   /**
    * 検索結果のインクリメンタル（差分）レンダリング
    * 既存のDOM要素を再利用し、新たに追加されたファイル/マッチ行のみを追記
+   * ソート順序 (ディレクトリ階層 ＞ ファイル名) を維持
    * @param {Array<any>} fileResults
    */
   function renderIncrementalResults(fileResults) {
-    const fragment = document.createDocumentFragment();
-
     for (const file of fileResults) {
       let fileDom = fileDomMap.get(file.filePath);
 
@@ -369,9 +426,22 @@
         toggleIcon.className = 'file-toggle-icon expanded';
         toggleIcon.textContent = '▸';
 
-        const filePathSpan = document.createElement('span');
-        filePathSpan.className = 'file-path';
-        filePathSpan.textContent = file.relativePath;
+        // VS Code 標準ライクな「ファイル名 (メイン)」＋「ディレクトリパス (サブ)」のコンテナ
+        const labelContainer = document.createElement('div');
+        labelContainer.className = 'file-label-container';
+
+        const fileNameSpan = document.createElement('span');
+        fileNameSpan.className = 'file-name';
+        fileNameSpan.textContent = file.fileName || file.relativePath;
+
+        labelContainer.appendChild(fileNameSpan);
+
+        if (file.dirPath && file.dirPath.length > 0) {
+          const dirSpan = document.createElement('span');
+          dirSpan.className = 'file-dir';
+          dirSpan.textContent = file.dirPath;
+          labelContainer.appendChild(dirSpan);
+        }
 
         const encTag = document.createElement('span');
         const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'euc-jp';
@@ -383,7 +453,7 @@
         badge.textContent = file.matches.length.toString();
 
         fileHeader.appendChild(toggleIcon);
-        fileHeader.appendChild(filePathSpan);
+        fileHeader.appendChild(labelContainer);
         fileHeader.appendChild(encTag);
         fileHeader.appendChild(badge);
 
@@ -413,7 +483,7 @@
         };
 
         fileDomMap.set(file.filePath, fileDom);
-        fragment.appendChild(fileGroup);
+        resultsContainer.appendChild(fileGroup);
       } else {
         // 既存ファイルグループへの差分追記
         if (file.matches.length > fileDom.renderedCount) {
@@ -426,11 +496,9 @@
           fileDom.renderedCount = file.matches.length;
           fileDom.badge.textContent = file.matches.length.toString();
         }
+        // ソート順維持のため末尾へ再配置
+        resultsContainer.appendChild(fileDom.container);
       }
-    }
-
-    if (fragment.childNodes.length > 0) {
-      resultsContainer.appendChild(fragment);
     }
   }
 })();

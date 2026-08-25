@@ -23,8 +23,10 @@ This extension addresses the long-standing workspace search limitations discusse
 ## Features
 
 - **Parallel Multi-Encoding Search**: Runs `ripgrep` across `EUC-JP`, `Shift_JIS` (CP932 / Windows-31J), and `UTF-8` in parallel by default, with configurable support for `UTF-16LE/BE`, `Windows-1252` (Latin-1), `GB18030`, `GBK`, `Big5`, and `EUC-KR`. Deduplicates overlapping matches automatically.
+- **Native VS Code Search UX**: Results are organized cleanly by directory hierarchy, file name, and line number with standard filename + directory path styling.
 - **Fast Streaming UI**: Incremental rendering and instant progress feedback stream matches into the view smoothly as they are found.
-- **Auto-Reopen in Detected Encoding**: Clicking a search result reopens the editor with the matched encoding (`eucjp` / `shiftjis` / `utf8` / `utf16le` / `windows1252` / `gb18030` etc.) and jumps to the exact line/column without modifying `files.encoding`.
+- **Auto-Reopen in Detected Encoding**: Clicking a search result reopens the editor with the matched encoding (`eucjp` / `shiftjis` / `utf8` / `utf16le` / `windows1252` / `gb18030` etc.) and highlights the exact match with perfect multi-byte character offset precision.
+- **Customizable Appearance**: Customize result font size, font family, match highlight colors, and text colors directly via VS Code settings.
 - **Zero Configuration**: Automatically resolves the ripgrep binary across Windows, WSL (Remote), macOS, and Linux without extra setup.
 - **Native Search Options**: Supports Case Sensitivity (`Aa`), Whole Word (`\b`), Regular Expressions (`.*`), and glob filters (`files to include` / `files to exclude`).
 
@@ -38,9 +40,12 @@ VS Code の標準検索は `files.encoding`（通常 UTF-8）に依存してい�
 
 ### 主な機能
 1. **複数文字コードの同時並行検索**: デフォルトで EUC-JP・Shift_JIS・UTF-8 を同時に検索。設定により UTF-16LE/BE、Windows-1252 (Latin-1)、GB18030、GBK、Big5、EUC-KR などの国際文字コードも同時に並行検索できます。
-2. **高速ストリーミング表示**: 検索中にヒットしたファイルや行がリアルタイムに順次表示され、検索件数も動的にカウントアップされます。
-3. **文字コード自動適用オープン**: 検索結果をクリックすると、該当文字コードでエディタを再読み込み（`reopenWithEncoding`）してジャンプします。
-4. **設定不要 (マルチプラットフォーム対応)**: VS Code 内蔵 ripgrep を自動検出し、Windows、WSL（リモート接続）、macOS、Linux で追加設定なしで即座に動作します。
+2. **VS Code 標準準拠の並び順と表示形式**: ディレクトリ階層順・ファイル名順・行番号順に整列され、ファイル名とフォルダパスが見やすく整理されて表示されます。
+3. **正確なキーワード選択ジャンプ**: 日本語などのマルチバイト文字が含まれていても、クリック時に1文字のズレもなく対象キーワードがハイライト・選択されます。
+4. **外観カスタマイズ**: フォントサイズ、フォントファミリ、ハイライト色、文字色などを設定から自由に変更可能（即時反映）。
+5. **高速ストリーミング表示**: 検索中にヒットしたファイルや行がリアルタイムに順次表示され、検索件数も動的にカウントアップされます。
+6. **文字コード自動適用オープン**: 検索結果をクリックすると、該当文字コードでエディタを再読み込み（`reopenWithEncoding`）してジャンプします。
+7. **設定不要 (マルチプラットフォーム対応)**: VS Code 内蔵 ripgrep を自動検出し、Windows、WSL（リモート接続）、macOS、Linux で追加設定なしで即座に動作します。
 
 ---
 
@@ -56,7 +61,13 @@ VS Code の標準検索は `files.encoding`（通常 UTF-8）に依存してい�
 
 | Setting | Default | Description |
 |---|---|---|
-| `multiEncodingSearch.encodings` | `["utf-8", "euc-jp", "shift_jis"]` | Array of character encodings to search simultaneously in parallel (`utf-8`, `euc-jp`, `shift_jis`, `utf-16le`, `utf-16be`, `windows-1252`, `gb18030`, `gbk`, `big5`, `euc-kr`). |
+| `multiEncodingSearch.encodings.*` | `true` | Enable/disable individual search encodings (UTF-8, EUC-JP, Shift_JIS, UTF-16LE/BE, Windows-1252, GB18030, GBK, Big5, EUC-KR). |
+| `multiEncodingSearch.results.fontSize` | `0` | Font size (px) for search results (0 uses VS Code default). |
+| `multiEncodingSearch.results.fontFamily` | `""` | Font family for search results. |
+| `multiEncodingSearch.results.matchHighlightBackground` | `""` | Background color for matched search keywords (e.g. `'#ea5c0055'`). |
+| `multiEncodingSearch.results.matchHighlightForeground` | `""` | Text color for matched search keywords. |
+| `multiEncodingSearch.results.textColor` | `""` | Text color for search result line previews. |
+| `multiEncodingSearch.results.secondaryTextColor` | `""` | Text color for line numbers and directory paths. |
 | `multiEncodingSearch.rgPath` | `"rg"` | Custom path to the ripgrep binary (optional; uses bundled ripgrep by default). |
 
 ---

@@ -76,7 +76,7 @@ export class RipgrepRunner {
       // 最初のヒット時は待ち時間なしで即座にUIに反映して体感速度を高める
       if (!hasNotifiedInitialProgress) {
         hasNotifiedInitialProgress = true;
-        const results = Array.from(fileResultMap.values());
+        const results = this.getSortedResults(fileResultMap);
         onProgress(results, totalMatchCount, results.length, isTruncated);
         return;
       }
@@ -87,7 +87,7 @@ export class RipgrepRunner {
 
       progressUpdateTimer = setTimeout(() => {
         progressUpdateTimer = null;
-        const results = Array.from(fileResultMap.values());
+        const results = this.getSortedResults(fileResultMap);
         onProgress(results, totalMatchCount, results.length, isTruncated);
       }, 60);
     };
@@ -206,7 +206,7 @@ export class RipgrepRunner {
               return;
             }
 
-            const results = Array.from(fileResultMap.values());
+            const results = this.getSortedResults(fileResultMap);
             onProgress(results, totalMatchCount, results.length, isTruncated);
             onComplete(totalMatchCount, results.length, isTruncated);
           }
@@ -218,6 +218,40 @@ export class RipgrepRunner {
         }
       }
     }
+  }
+
+  /**
+   * 結果マップからファイルパス順・行番号順にソートされた配列を取得する
+   */
+  private getSortedResults(fileResultMap: Map<string, FileSearchResult>): FileSearchResult[] {
+    const results = Array.from(fileResultMap.values());
+
+    // 各ファイル内のマッチ行を行番号・列番号順にソート
+    for (const file of results) {
+      file.matches.sort((a, b) => {
+        if (a.lineNumber !== b.lineNumber) {
+          return a.lineNumber - b.lineNumber;
+        }
+        return a.columnNumber - b.columnNumber;
+      });
+    }
+
+    // ファイル同士をディレクトリ階層順 ＞ ファイル名順でソート (VS Code 標準検索に準拠)
+    results.sort((a, b) => {
+      // 1. ディレクトリパスの比較
+      if (a.dirPath !== b.dirPath) {
+        // ルート直下 (dirPath が空) は先に表示するか後に表示するか
+        // VS Code 標準ではパス階層のアルファベット順比較
+        const dirCompare = a.dirPath.localeCompare(b.dirPath, undefined, { numeric: true, sensitivity: 'base' });
+        if (dirCompare !== 0) {
+          return dirCompare;
+        }
+      }
+      // 2. ディレクトリが同一ならファイル名で比較
+      return a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    return results;
   }
 
   /**
@@ -375,7 +409,38 @@ export class RipgrepRunner {
   ): boolean {
     const filePath = matchData.path.text;
     const lineNumber = matchData.line_number;
-    const firstSubmatch = matchData.submatches[0];
+
+    // 行テキストの改行文字を削除
+    const cleanLineText = matchData.lines.text.replace(/\r?\n$/, '');
+
+    // ripgrep のバイトオフセットを JavaScript / VS Code の文字インデックス (UTF-16) に変換
+    const convertedSubmatches: Array<{ matchText: string; start: number; end: number }> = [];
+    let charSearchCursor = 0;
+
+    for (const sub of matchData.submatches) {
+      const matchText = sub.match.text;
+      // matchText の出現位置を検索 (行内の前のマッチ位置以降から探す)
+      const foundIndex = cleanLineText.indexOf(matchText, charSearchCursor);
+
+      if (foundIndex !== -1) {
+        convertedSubmatches.push({
+          matchText,
+          start: foundIndex,
+          end: foundIndex + matchText.length
+        });
+        charSearchCursor = foundIndex + matchText.length;
+      } else {
+        // 万が一 indexOf で見つからない場合のフォールバック
+        convertedSubmatches.push({
+          matchText,
+          start: sub.start,
+          end: sub.end
+        });
+      }
+    }
+
+    const firstSubmatch = convertedSubmatches[0];
+    // 列番号は 1 始まりの文字インデックス
     const columnNumber = firstSubmatch ? firstSubmatch.start + 1 : 1;
 
     // 重複判定キー (同一ファイル・行・列での重複を排除)
@@ -389,27 +454,27 @@ export class RipgrepRunner {
 
     let fileResult = fileResultMap.get(filePath);
     if (!fileResult) {
+      // ファイル名とディレクトリパスを分解
+      const parsedPath = path.posix.parse(relativePath);
+      const fileName = parsedPath.base;
+      const dirPath = parsedPath.dir === '.' ? '' : parsedPath.dir;
+
       fileResult = {
         filePath,
         relativePath,
+        fileName,
+        dirPath,
         matches: [],
         primaryEncoding: encoding
       };
       fileResultMap.set(filePath, fileResult);
     }
 
-    // 行テキストの改行文字を削除
-    const cleanLineText = matchData.lines.text.replace(/\r?\n$/, '');
-
     const searchMatch: SearchMatch = {
       lineNumber,
       columnNumber,
       lineText: cleanLineText,
-      submatches: matchData.submatches.map((sub) => ({
-        matchText: sub.match.text,
-        start: sub.start,
-        end: sub.end
-      })),
+      submatches: convertedSubmatches,
       encoding
     };
 

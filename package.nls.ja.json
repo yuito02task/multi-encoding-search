@@ -5,5 +5,11 @@
   "views.multiEncodingSearch.name": "マルチ文字コード検索",
   "config.title": "マルチ文字コード検索",
   "config.encodings.description": "同時に並行検索する文字コード一覧。UTF-8, EUC-JP, Shift_JIS, UTF-16LE/BE, Windows-1252, GB18030, GBK, Big5, EUC-KR 等を指定できます。",
-  "config.rgPath.description": "ripgrep の実行ファイル名またはフルパス (既定で同梱されています)"
+  "config.rgPath.description": "ripgrep の実行ファイル名またはフルパス (既定で同梱されています)",
+  "config.results.fontSize.description": "サイドバー検索結果一覧のフォントサイズ (px)。0 を指定した場合は VS Code の標準設定に従います。",
+  "config.results.fontFamily.description": "検索結果一覧のフォントファミリ (例: 'Cascadia Code', 'Consolas', monospace)。空欄の場合は VS Code の標準設定に従います。",
+  "config.results.matchHighlightBackground.description": "検索キーワード一致箇所のハイライト背景色 (例: '#ea5c0055', 'rgba(234, 92, 0, 0.33)')。空欄の場合はテーマの標準色を使用します。",
+  "config.results.matchHighlightForeground.description": "検索キーワード一致箇所の文字色。空欄の場合はテーマの標準色を使用します。",
+  "config.results.textColor.description": "検索結果行プレビューの文字色。空欄の場合はテーマの標準色を使用します。",
+  "config.results.secondaryTextColor.description": "行番号やフォルダパス等の補助テキストの文字色。空欄の場合はテーマの標準色を使用します。"
 }
