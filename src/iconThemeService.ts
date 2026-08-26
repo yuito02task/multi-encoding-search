@@ -134,11 +134,10 @@ export class FileIconService {
   }
 
   /**
-   * 指定されたファイル名に対応するアイコン URI (Webview URI または Data URI) を取得する
-   * @param webview Webview インスタンス
+   * 指定されたファイル名に対応するアイコン URI (Data URI) を取得する
    * @param fileName ファイル名 (例: "index.ts", "package.json")
    */
-  public getFileIconUri(webview: vscode.Webview, fileName: string): string {
+  public getFileIconUri(fileName: string): string {
     const cacheKey = fileName.toLowerCase();
     if (this.iconCache.has(cacheKey)) {
       return this.iconCache.get(cacheKey)!;
@@ -148,7 +147,7 @@ export class FileIconService {
 
     // 1. アクティブなアイコンテーマからの解決を試行 (Material Icon Theme, vscode-icons 等)
     if (this.iconThemeData && this.themeDirectory) {
-      resolvedUri = this.resolveIconFromTheme(webview, fileName);
+      resolvedUri = this.resolveIconFromTheme(fileName);
     }
 
     // 2. テーマから取得できなかった場合は組み込み SVG フォールバックを使用
@@ -161,9 +160,9 @@ export class FileIconService {
   }
 
   /**
-   * テーマ定義 JSON からファイルアイコンの Webview URI を解決する
+   * テーマ定義 JSON からファイルアイコンの Data URI を解決する
    */
-  private resolveIconFromTheme(webview: vscode.Webview, fileName: string): string {
+  private resolveIconFromTheme(fileName: string): string {
     if (!this.iconThemeData || !this.themeDirectory || !this.iconThemeData.iconDefinitions) {
       return '';
     }
@@ -188,16 +187,32 @@ export class FileIconService {
     else if (simpleExt && this.iconThemeData.fileExtensions && this.iconThemeData.fileExtensions[simpleExt]) {
       iconKey = this.iconThemeData.fileExtensions[simpleExt];
     }
-    // ④ デフォルトファイルアイコン
+    // ④ 言語 ID
+    else if (this.iconThemeData.languageIds && this.iconThemeData.languageIds[simpleExt]) {
+      iconKey = this.iconThemeData.languageIds[simpleExt];
+    }
+    // ⑤ デフォルトファイルアイコン
     else if (this.iconThemeData.file) {
       iconKey = this.iconThemeData.file;
     }
 
     if (iconKey && defs[iconKey] && defs[iconKey].iconPath) {
       const relIconPath = defs[iconKey].iconPath!;
-      const absIconPath = path.join(this.themeDirectory, relIconPath);
+      const absIconPath = path.resolve(this.themeDirectory, relIconPath);
       if (fs.existsSync(absIconPath)) {
-        return webview.asWebviewUri(vscode.Uri.file(absIconPath)).toString();
+        try {
+          const fileExt = path.extname(absIconPath).toLowerCase();
+          if (fileExt === '.svg') {
+            const svgContent = fs.readFileSync(absIconPath, 'utf8');
+            return `data:image/svg+xml;utf8,${encodeURIComponent(svgContent)}`;
+          } else {
+            const buffer = fs.readFileSync(absIconPath);
+            const mimeType = fileExt === '.png' ? 'image/png' : 'image/svg+xml';
+            return `data:${mimeType};base64,${buffer.toString('base64')}`;
+          }
+        } catch (readErr) {
+          console.warn(`アイコンファイルの読み込みに失敗しました (${absIconPath}):`, readErr);
+        }
       }
     }
 

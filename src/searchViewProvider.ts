@@ -331,9 +331,8 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    * 検索結果の各ファイルにアイコン URI を付与する
    */
   private attachIconUris(results: any[]): void {
-    if (!this.view) return;
     for (const file of results) {
-      file.iconUri = this.iconService.getFileIconUri(this.view.webview, file.fileName);
+      file.iconUri = this.iconService.getFileIconUri(file.fileName);
     }
   }
 
@@ -552,6 +551,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       matchCase: translate('Match Case', '大文字/小文字を区別 (Match Case)'),
       matchWholeWord: translate('Match Whole Word', '単語全体に一致 (Match Whole Word)'),
       useRegularExpression: translate('Use Regular Expression', '正規表現を使用 (Use Regular Expression)'),
+      toggleLineNumbers: translate('Toggle Line Numbers', '行番号の表示/非表示 (Toggle Line Numbers)'),
       searchBtn: translate('Search', '検索'),
       stopBtn: translate('Stop', '停止'),
       autoEncodingBadge: translate('⚡ Auto Encoding', '⚡ 文字コード自動判定'),
@@ -592,7 +592,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: blob: https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="${styleUri}">
   <title>Multi-Encoding Search</title>
@@ -614,6 +614,9 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
             </button>
             <button id="btnRegex" class="icon-toggle-btn" title="${i18n.useRegularExpression}">
               <span class="toggle-icon">.*</span>
+            </button>
+            <button id="btnLineNumbers" class="icon-toggle-btn" title="${i18n.toggleLineNumbers}">
+              <span class="toggle-icon">#</span>
             </button>
           </div>
         </div>

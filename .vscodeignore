@@ -5,6 +5,9 @@ src/**
 tsconfig.json
 vscode-eucjp-search-extension-instructions.md
 DEVELOPMENT_NOTES.md
+AGENTS.md
+GEMINI.md
+.agents/**
 test-samples/**
 **/*.map
 

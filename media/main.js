@@ -23,6 +23,7 @@
   const btnCaseSensitive = /** @type {HTMLButtonElement} */ (document.getElementById('btnCaseSensitive'));
   const btnWordMatch = /** @type {HTMLButtonElement} */ (document.getElementById('btnWordMatch'));
   const btnRegex = /** @type {HTMLButtonElement} */ (document.getElementById('btnRegex'));
+  const btnLineNumbers = /** @type {HTMLButtonElement} */ (document.getElementById('btnLineNumbers'));
   const btnToggleDetails = /** @type {HTMLButtonElement} */ (document.getElementById('btnToggleDetails'));
   const detailsToggleIcon = /** @type {HTMLElement} */ (document.getElementById('detailsToggleIcon'));
   const detailsContainer = /** @type {HTMLElement} */ (document.getElementById('detailsContainer'));
@@ -40,6 +41,7 @@
   let isCaseSensitive = false;
   let isWordMatch = false;
   let isRegex = false;
+  let showLineNumbers = false;
 
   // 設定の適用 (カスタムプロパティを動的に上書き)
   /**
@@ -49,10 +51,15 @@
     if (!settings) return;
     const root = document.documentElement;
 
-    if (settings.showLineNumbers === true) {
-      document.body.classList.remove('hide-line-numbers');
-    } else {
-      document.body.classList.add('hide-line-numbers');
+    if (settings.showLineNumbers !== undefined) {
+      showLineNumbers = !!settings.showLineNumbers;
+      if (showLineNumbers) {
+        document.body.classList.remove('hide-line-numbers');
+        btnLineNumbers?.classList.add('active');
+      } else {
+        document.body.classList.add('hide-line-numbers');
+        btnLineNumbers?.classList.remove('active');
+      }
     }
 
     if (settings.fontSize && settings.fontSize > 0) {
@@ -119,6 +126,16 @@
     isRegex = true;
     btnRegex.classList.add('active');
   }
+  if (previousState.showLineNumbers !== undefined) {
+    showLineNumbers = !!previousState.showLineNumbers;
+    if (showLineNumbers) {
+      document.body.classList.remove('hide-line-numbers');
+      btnLineNumbers?.classList.add('active');
+    } else {
+      document.body.classList.add('hide-line-numbers');
+      btnLineNumbers?.classList.remove('active');
+    }
+  }
   if (previousState.includePattern) {
     includeInput.value = previousState.includePattern;
   }
@@ -133,6 +150,7 @@
       isCaseSensitive,
       isWordMatch,
       isRegex,
+      showLineNumbers,
       includePattern: includeInput.value,
       excludePattern: excludeInput.value
     });
@@ -156,6 +174,19 @@
     btnRegex.classList.toggle('active', isRegex);
     saveState();
   });
+
+  if (btnLineNumbers) {
+    btnLineNumbers.addEventListener('click', () => {
+      showLineNumbers = !showLineNumbers;
+      btnLineNumbers.classList.toggle('active', showLineNumbers);
+      if (showLineNumbers) {
+        document.body.classList.remove('hide-line-numbers');
+      } else {
+        document.body.classList.add('hide-line-numbers');
+      }
+      saveState();
+    });
+  }
 
   // 詳細オプションの開閉
   btnToggleDetails.addEventListener('click', () => {
