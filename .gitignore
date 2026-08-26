@@ -9,10 +9,13 @@ node_modules
 # VSIX パッケージファイル
 *.vsix
 
-# 開発用・指示書・一時ファイル・開発メモ
+# 開発用・指示書・一時ファイル・開発メモ・AI関連
 vscode-eucjp-search-extension-instructions.md
 test-samples
 DEVELOPMENT_NOTES.md
+AGENTS.md
+GEMINI.md
+.agents/
 
 # OS / エディタ一時ファイル
 .DS_Store
