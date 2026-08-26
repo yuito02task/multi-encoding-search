@@ -359,6 +359,9 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     // 検索対象エンコーディングを設定から取得 (個別オン/オフ設定に対応)
     options.targetEncodings = this.getConfiguredEncodings();
 
+    // アイコンテーマ設定を最新化
+    this.iconService.refreshTheme();
+
     // 検索開始を通知
     this.postMessageToWebview({ command: 'searchStart' });
 
