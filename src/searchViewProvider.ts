@@ -280,17 +280,9 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    * Webview がアクセス可能なローカルディレクトリ一覧を取得する
    */
   private getLocalResourceRoots(): vscode.Uri[] {
-    const roots: vscode.Uri[] = [
+    return [
       vscode.Uri.joinPath(this.extensionUri, 'media')
     ];
-
-    // アクティブなアイコンテーマ拡張機能の URI もアクセス許可に追加
-    const themeUri = this.iconService.getThemeExtensionUri();
-    if (themeUri) {
-      roots.push(themeUri);
-    }
-
-    return roots;
   }
 
   /**
