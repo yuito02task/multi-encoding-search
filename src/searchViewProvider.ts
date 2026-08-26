@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as childProcess from 'child_process';
 import { RipgrepRunner } from './ripgrepRunner';
+import { FileIconService } from './iconThemeService';
 import { SearchOptions, WebviewMessage, ExtensionMessage, SupportedEncoding, ResultDisplaySettings } from './types';
 
 /**
@@ -13,13 +14,23 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
 
   private view?: vscode.WebviewView;
   private readonly runner: RipgrepRunner;
+  private readonly iconService: FileIconService;
 
   constructor(private readonly extensionUri: vscode.Uri) {
     this.runner = new RipgrepRunner();
+    this.iconService = new FileIconService();
 
-    // 設定変更の監視 (フォントサイズや色の変更を即座に Webview へ通知)
+    // 設定変更の監視 (フォントサイズや色の変更、アイコンテーマの変更を即座に Webview へ通知)
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('multiEncodingSearch.results')) {
+        this.postMessageToWebview({
+          command: 'updateSettings',
+          settings: this.getDisplaySettings()
+        });
+      }
+      if (e.affectsConfiguration('workbench.iconTheme')) {
+        this.iconService.refreshTheme();
+        this.updateWebviewOptions();
         this.postMessageToWebview({
           command: 'updateSettings',
           settings: this.getDisplaySettings()
@@ -34,6 +45,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   private getDisplaySettings(): ResultDisplaySettings {
     const config = vscode.workspace.getConfiguration('multiEncodingSearch.results');
     return {
+      showLineNumbers: config.get<boolean>('showLineNumbers', false),
       fontSize: config.get<number>('fontSize', 0),
       fontFamily: config.get<string>('fontFamily', ''),
       matchHighlightBackground: config.get<string>('matchHighlightBackground', ''),
@@ -242,10 +254,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     this.view = webviewView;
 
     // Webview のオプション設定 (スクリプトの有効化・ローカルリソースのアクセス許可)
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
-    };
+    this.updateWebviewOptions();
 
     // HTML コンテンツの設定
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
@@ -254,6 +263,34 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (message: WebviewMessage) => {
       await this.handleWebviewMessage(message);
     });
+  }
+
+  /**
+   * Webview のアクセス許可パス (localResourceRoots) を更新する
+   */
+  private updateWebviewOptions(): void {
+    if (!this.view) return;
+    this.view.webview.options = {
+      enableScripts: true,
+      localResourceRoots: this.getLocalResourceRoots()
+    };
+  }
+
+  /**
+   * Webview がアクセス可能なローカルディレクトリ一覧を取得する
+   */
+  private getLocalResourceRoots(): vscode.Uri[] {
+    const roots: vscode.Uri[] = [
+      vscode.Uri.joinPath(this.extensionUri, 'media')
+    ];
+
+    // アクティブなアイコンテーマ拡張機能の URI もアクセス許可に追加
+    const themeUri = this.iconService.getThemeExtensionUri();
+    if (themeUri) {
+      roots.push(themeUri);
+    }
+
+    return roots;
   }
 
   /**
@@ -291,6 +328,16 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * 検索結果の各ファイルにアイコン URI を付与する
+   */
+  private attachIconUris(results: any[]): void {
+    if (!this.view) return;
+    for (const file of results) {
+      file.iconUri = this.iconService.getFileIconUri(this.view.webview, file.fileName);
+    }
+  }
+
+  /**
    * 検索コマンドを処理する
    */
   private async handleSearchCommand(options: SearchOptions): Promise<void> {
@@ -323,6 +370,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       options,
       // 進捗コールバック
       (results, totalMatches, totalFiles, isTruncated) => {
+        this.attachIconUris(results);
         this.postMessageToWebview({
           command: 'searchProgress',
           results,

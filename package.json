@@ -2,7 +2,7 @@
   "name": "multi-encoding-search",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "publisher": "yuitomaruyama",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -131,6 +131,11 @@
           "type": "string",
           "default": "rg",
           "description": "%config.rgPath.description%"
+        },
+        "multiEncodingSearch.results.showLineNumbers": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.results.showLineNumbers.description%"
         },
         "multiEncodingSearch.results.fontSize": {
           "type": "number",

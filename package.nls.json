@@ -6,6 +6,7 @@
   "config.title": "Multi-Encoding Search",
   "config.encodings.description": "List of character encodings to search simultaneously in parallel. Supports UTF-8, EUC-JP, Shift_JIS, UTF-16LE/BE, Windows-1252, GB18030, GBK, Big5, EUC-KR.",
   "config.rgPath.description": "ripgrep executable name or full path (bundled by default)",
+  "config.results.showLineNumbers.description": "Whether to display line numbers in search results (default: false).",
   "config.results.fontSize.description": "Font size (in pixels) for search results in the sidebar. Set to 0 to use VS Code default.",
   "config.results.fontFamily.description": "Font family for search results (e.g. 'Cascadia Code', 'Consolas', monospace). Leave empty to use VS Code default.",
   "config.results.matchHighlightBackground.description": "Background color for matched search keywords (e.g. '#ea5c0055' or 'rgba(234, 92, 0, 0.33)'). Leave empty for theme default.",

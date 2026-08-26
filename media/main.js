@@ -49,6 +49,12 @@
     if (!settings) return;
     const root = document.documentElement;
 
+    if (settings.showLineNumbers === true) {
+      document.body.classList.remove('hide-line-numbers');
+    } else {
+      document.body.classList.add('hide-line-numbers');
+    }
+
     if (settings.fontSize && settings.fontSize > 0) {
       root.style.setProperty('--search-font-size', `${settings.fontSize}px`);
     } else {
@@ -91,6 +97,9 @@
   if (window.initialSettings) {
     // @ts-ignore
     applySettings(window.initialSettings);
+  } else {
+    // 初期状態は行番号非表示
+    document.body.classList.add('hide-line-numbers');
   }
 
   // 永続化ステートの復元
@@ -373,7 +382,7 @@
 
     const posSpan = document.createElement('span');
     posSpan.className = 'match-position';
-    posSpan.textContent = `${match.lineNumber}:${match.columnNumber}`;
+    posSpan.textContent = `${match.lineNumber}`;
 
     const previewSpan = document.createElement('span');
     previewSpan.className = 'match-preview';
@@ -426,6 +435,17 @@
         toggleIcon.className = 'file-toggle-icon expanded';
         toggleIcon.textContent = '▸';
 
+        fileHeader.appendChild(toggleIcon);
+
+        // ファイル拡張子アイコン
+        if (file.iconUri) {
+          const iconImg = document.createElement('img');
+          iconImg.className = 'file-icon';
+          iconImg.src = file.iconUri;
+          iconImg.alt = '';
+          fileHeader.appendChild(iconImg);
+        }
+
         // VS Code 標準ライクな「ファイル名 (メイン)」＋「ディレクトリパス (サブ)」のコンテナ
         const labelContainer = document.createElement('div');
         labelContainer.className = 'file-label-container';
@@ -452,7 +472,6 @@
         badge.className = 'match-count-badge';
         badge.textContent = file.matches.length.toString();
 
-        fileHeader.appendChild(toggleIcon);
         fileHeader.appendChild(labelContainer);
         fileHeader.appendChild(encTag);
         fileHeader.appendChild(badge);

@@ -420,15 +420,29 @@ export class RipgrepRunner {
     const lineNumber = matchData.line_number;
 
     // 行テキストの改行文字を削除
-    const cleanLineText = matchData.lines.text.replace(/\r?\n$/, '');
+    const rawLineText = matchData.lines.text.replace(/\r?\n$/, '');
+
+    // 先頭のインデント (空白・タブ) をトリムしてコード内容を見やすくする (VS Code 標準検索と同様)
+    const indentMatch = rawLineText.match(/^[ \t]+/);
+    const leadingIndentLength = indentMatch ? indentMatch[0].length : 0;
+    const cleanLineText = leadingIndentLength > 0 ? rawLineText.substring(leadingIndentLength) : rawLineText;
 
     // ripgrep のバイトオフセットを JavaScript / VS Code の文字インデックス (UTF-16) に変換
     const convertedSubmatches: Array<{ matchText: string; start: number; end: number }> = [];
     let charSearchCursor = 0;
+    let originalFirstCol = 1;
 
-    for (const sub of matchData.submatches) {
+    for (let i = 0; i < matchData.submatches.length; i++) {
+      const sub = matchData.submatches[i];
       const matchText = sub.match.text;
-      // matchText の出現位置を検索 (行内の前のマッチ位置以降から探す)
+
+      // 元の行での出現位置 (ジャンプ用列番号の計算)
+      if (i === 0) {
+        const rawIdx = rawLineText.indexOf(matchText);
+        originalFirstCol = rawIdx !== -1 ? rawIdx + 1 : sub.start + 1;
+      }
+
+      // トリム後の表示用行テキスト内での出現位置を検索 (行内の前のマッチ位置以降から探す)
       const foundIndex = cleanLineText.indexOf(matchText, charSearchCursor);
 
       if (foundIndex !== -1) {
@@ -439,18 +453,19 @@ export class RipgrepRunner {
         });
         charSearchCursor = foundIndex + matchText.length;
       } else {
-        // 万が一 indexOf で見つからない場合のフォールバック
+        // 万が一 indexOf で見つからない場合のフォールバック (インデント分を安全に減算)
+        const fallbackStart = Math.max(0, sub.start - leadingIndentLength);
+        const fallbackEnd = Math.max(fallbackStart + matchText.length, sub.end - leadingIndentLength);
         convertedSubmatches.push({
           matchText,
-          start: sub.start,
-          end: sub.end
+          start: fallbackStart,
+          end: fallbackEnd
         });
       }
     }
 
-    const firstSubmatch = convertedSubmatches[0];
-    // 列番号は 1 始まりの文字インデックス
-    const columnNumber = firstSubmatch ? firstSubmatch.start + 1 : 1;
+    // 列番号はファイルオープンジャンプ用の元行 1 始まり文字インデックス
+    const columnNumber = originalFirstCol;
 
     // 重複判定キー (同一ファイル・行・列での重複を排除)
     const matchKey = `${filePath}:${lineNumber}:${columnNumber}`;

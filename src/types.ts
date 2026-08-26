@@ -67,6 +67,8 @@ export interface SearchMatch {
  * 検索結果の表示カスタマイズ設定
  */
 export interface ResultDisplaySettings {
+  /** 行番号を表示するかどうか (デフォルト: false) */
+  showLineNumbers?: boolean;
   /** フォントサイズ (px または空文字/0でデフォルト) */
   fontSize?: number;
   /** フォントファミリ (未指定時はデフォルト) */
@@ -93,6 +95,8 @@ export interface FileSearchResult {
   fileName: string;
   /** 所属ディレクトリパス (例: src/utils) */
   dirPath: string;
+  /** ファイルアイコンの Webview 用 URI または SVG Data URI */
+  iconUri?: string;
   /** このファイル内のマッチ一覧 */
   matches: SearchMatch[];
   /** 主な文字エンコーディング */
