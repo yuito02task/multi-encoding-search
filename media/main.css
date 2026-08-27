@@ -468,13 +468,19 @@ body {
   color: var(--vscode-list-activeSelectionForeground, #ffffff);
 }
 
-/* 行番号バッジ (行番号のみ表示・幅コンパクト) */
+/* 行番号バッジ (行番号のみ表示・幅固定・等幅数字で桁ズレ防止) */
 .match-position {
   color: var(--search-secondary-color);
-  min-width: 24px;
+  width: 38px;
+  min-width: 38px;
+  max-width: 38px;
   text-align: right;
   flex-shrink: 0;
   font-size: calc(var(--search-font-size) - 1px);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--search-font-family);
+  margin-right: 6px;
+  user-select: none;
 }
 
 /* 行番号非表示モード */

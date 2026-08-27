@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * EUC-JP Search Webview スクリプト
+ * Multi-Encoding Search Webview スクリプト
  */
 (function () {
   // @ts-ignore
@@ -32,8 +32,95 @@
   const statusContainer = /** @type {HTMLElement} */ (document.getElementById('statusContainer'));
   const resultsContainer = /** @type {HTMLElement} */ (document.getElementById('resultsContainer'));
 
-    // DOM キャッシュ: ファイルごとの要素情報を管理 (差分レンダリング用)
-  /** @type {Map<string, { container: HTMLElement, matchList: HTMLElement, badge: HTMLElement, renderedCount: number }>} */
+  /**
+   * 入力履歴管理クラス (VS Code 標準ライクな上下キーナビゲーション)
+   */
+  class HistoryNavigator {
+    /**
+     * @param {HTMLInputElement} inputElement
+     * @param {string[]} initialHistory
+     * @param {() => void} onSaveState
+     */
+    constructor(inputElement, initialHistory, onSaveState) {
+      this.inputElement = inputElement;
+      this.history = Array.isArray(initialHistory) ? initialHistory : [];
+      this.historyIndex = -1;
+      this.tempValue = '';
+      this.onSaveState = onSaveState;
+
+      this.inputElement.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp') {
+          this.navigateUp(e);
+        } else if (e.key === 'ArrowDown') {
+          this.navigateDown(e);
+        }
+      });
+
+      this.inputElement.addEventListener('input', () => {
+        if (this.historyIndex === -1) {
+          this.tempValue = this.inputElement.value;
+        }
+      });
+    }
+
+    /**
+     * @param {KeyboardEvent} e
+     */
+    navigateUp(e) {
+      if (this.history.length === 0) return;
+      if (this.historyIndex === -1) {
+        this.tempValue = this.inputElement.value;
+      }
+      if (this.historyIndex < this.history.length - 1) {
+        this.historyIndex++;
+        this.inputElement.value = this.history[this.historyIndex];
+        e.preventDefault();
+        this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+      }
+    }
+
+    /**
+     * @param {KeyboardEvent} e
+     */
+    navigateDown(e) {
+      if (this.historyIndex > 0) {
+        this.historyIndex--;
+        this.inputElement.value = this.history[this.historyIndex];
+        e.preventDefault();
+        this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+      } else if (this.historyIndex === 0) {
+        this.historyIndex = -1;
+        this.inputElement.value = this.tempValue;
+        e.preventDefault();
+        this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+      }
+    }
+
+    /**
+     * @param {string} value
+     */
+    push(value) {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      // 既存の同一履歴を削除して最新位置へ移動
+      this.history = this.history.filter((item) => item !== trimmed);
+      this.history.unshift(trimmed);
+      // 最大50件保持
+      if (this.history.length > 50) {
+        this.history.pop();
+      }
+      this.historyIndex = -1;
+      this.tempValue = '';
+      this.onSaveState();
+    }
+
+    getHistory() {
+      return this.history;
+    }
+  }
+
+  // DOM キャッシュ: ファイルごとの要素情報を管理 (差分レンダリング用)
+  /** @type {Map<string, { container: HTMLElement, matchList: HTMLElement, encTag: HTMLElement, badge: HTMLElement, matchElements: Map<number, HTMLElement>, renderedCount: number }>} */
   const fileDomMap = new Map();
 
   // 検索状態の管理
@@ -152,9 +239,17 @@
       isRegex,
       showLineNumbers,
       includePattern: includeInput.value,
-      excludePattern: excludeInput.value
+      excludePattern: excludeInput.value,
+      searchHistory: searchHistoryNav.getHistory(),
+      includeHistory: includeHistoryNav.getHistory(),
+      excludeHistory: excludeHistoryNav.getHistory()
     });
   }
+
+  // 履歴ナビゲーターの初期化 (検索欄・含めるファイル欄・除外ファイル欄)
+  const searchHistoryNav = new HistoryNavigator(searchInput, previousState.searchHistory || [], saveState);
+  const includeHistoryNav = new HistoryNavigator(includeInput, previousState.includeHistory || [], saveState);
+  const excludeHistoryNav = new HistoryNavigator(excludeInput, previousState.excludeHistory || [], saveState);
 
   // トグルボタンのイベントハンドラ
   btnCaseSensitive.addEventListener('click', () => {
@@ -209,6 +304,15 @@
       // 検索中ならキャンセルを実行
       vscode.postMessage({ command: 'cancel' });
       return;
+    }
+
+    // 検索語・条件を履歴にプッシュ
+    searchHistoryNav.push(searchInput.value);
+    if (includeInput.value.trim()) {
+      includeHistoryNav.push(includeInput.value);
+    }
+    if (excludeInput.value.trim()) {
+      excludeHistoryNav.push(excludeInput.value);
     }
 
     saveState();
@@ -293,7 +397,7 @@
         break;
 
       case 'searchProgress':
-        // 差分（インクリメンタル）レンダリングで即時ストリーミング表示 (ソート順を維持)
+        // 差分（インクリメンタル）レンダリングで即時ストリーミング表示
         renderIncrementalResults(message.results);
         if (message.totalMatches > 0) {
           statusContainer.className = 'status-container';
@@ -397,7 +501,7 @@
     if (enc === 'gbk') return 'GBK';
     if (enc === 'big5') return 'BIG5';
     if (enc === 'euc-kr') return 'EUC-KR';
-    return enc.toUpperCase();
+    return enc ? enc.toUpperCase() : 'UTF-8';
   }
 
   /**
@@ -445,11 +549,12 @@
 
   /**
    * 検索結果のインクリメンタル（差分）レンダリング
-   * 既存のDOM要素を再利用し、新たに追加されたファイル/マッチ行のみを追記
-   * ソート順序 (ディレクトリ階層 ＞ ファイル名) を維持
+   * 高速化のため、新規要素のみを DOM に追記し、既存行の文字コード改善時はピンポイント更新を行う
    * @param {Array<any>} fileResults
    */
   function renderIncrementalResults(fileResults) {
+    const fragment = document.createDocumentFragment();
+
     for (const file of fileResults) {
       let fileDom = fileDomMap.get(file.filePath);
 
@@ -495,7 +600,7 @@
         }
 
         const encTag = document.createElement('span');
-        const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'euc-jp';
+        const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'utf-8';
         encTag.className = `encoding-tag ${primaryEnc}`;
         encTag.textContent = formatEncodingName(primaryEnc);
 
@@ -516,10 +621,14 @@
           toggleIcon.classList.toggle('expanded', !isHidden);
         });
 
+        const matchElements = new Map();
+
         // 初回マッチ行の追加
         for (let i = 0; i < file.matches.length; i++) {
-          const matchElem = createMatchItemElement(file, file.matches[i]);
+          const match = file.matches[i];
+          const matchElem = createMatchItemElement(file, match);
           matchList.appendChild(matchElem);
+          matchElements.set(match.lineNumber, matchElem);
         }
 
         fileGroup.appendChild(fileHeader);
@@ -528,27 +637,47 @@
         fileDom = {
           container: fileGroup,
           matchList: matchList,
+          encTag: encTag,
           badge: badge,
+          matchElements: matchElements,
           renderedCount: file.matches.length
         };
 
         fileDomMap.set(file.filePath, fileDom);
-        resultsContainer.appendChild(fileGroup);
+        fragment.appendChild(fileGroup);
       } else {
-        // 既存ファイルグループへの差分追記
-        if (file.matches.length > fileDom.renderedCount) {
-          const matchFragment = document.createDocumentFragment();
-          for (let i = fileDom.renderedCount; i < file.matches.length; i++) {
-            const matchElem = createMatchItemElement(file, file.matches[i]);
-            matchFragment.appendChild(matchElem);
+        // 既存ファイルグループの更新: プライマリエンコーディングとバッジの同期
+        const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'utf-8';
+        fileDom.encTag.className = `encoding-tag ${primaryEnc}`;
+        fileDom.encTag.textContent = formatEncodingName(primaryEnc);
+        fileDom.badge.textContent = file.matches.length.toString();
+
+        // 既存行の更新または新規行の追加
+        for (const match of file.matches) {
+          const existingElem = fileDom.matchElements.get(match.lineNumber);
+          if (existingElem) {
+            // 文字コード改善等で行内容が変わっている可能性があるためプレビューを安全に再構築
+            const previewSpan = existingElem.querySelector('.match-preview');
+            if (previewSpan) {
+              const newHtml = buildHighlightedLineHtml(match.lineText, match.submatches);
+              if (previewSpan.innerHTML !== newHtml) {
+                previewSpan.innerHTML = newHtml;
+              }
+            }
+            existingElem.title = `${file.relativePath}:${match.lineNumber}:${match.columnNumber} [${formatEncodingName(match.encoding)}]`;
+          } else {
+            // 新規行の追加
+            const newElem = createMatchItemElement(file, match);
+            fileDom.matchList.appendChild(newElem);
+            fileDom.matchElements.set(match.lineNumber, newElem);
           }
-          fileDom.matchList.appendChild(matchFragment);
-          fileDom.renderedCount = file.matches.length;
-          fileDom.badge.textContent = file.matches.length.toString();
         }
-        // ソート順維持のため末尾へ再配置
-        resultsContainer.appendChild(fileDom.container);
       }
+    }
+
+    if (fragment.childNodes.length > 0) {
+      resultsContainer.appendChild(fragment);
     }
   }
 })();
+

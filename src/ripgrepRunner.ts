@@ -1,7 +1,7 @@
 import * as childProcess from 'child_process';
 import * as readline from 'readline';
 import * as path from 'path';
-import { SearchOptions, FileSearchResult, SearchMatch, SupportedEncoding } from './types';
+import { SearchOptions, FileSearchResult, SearchMatch, SupportedEncoding, Submatch } from './types';
 
 /** 検索結果の最大表示件数 */
 const MAX_MATCH_LIMIT = 10000;
@@ -21,6 +21,20 @@ interface RgMatchData {
     start: number;
     end: number;
   }>;
+}
+
+/**
+ * 内部管理用の拡張マッチ情報 (品質スコア付き)
+ */
+interface SearchMatchInternal extends SearchMatch {
+  qualityScore: number;
+}
+
+/**
+ * 内部管理用のファイル検索結果 (行マップ付き)
+ */
+interface FileSearchResultInternal extends FileSearchResult {
+  lineMap: Map<number, SearchMatchInternal>;
 }
 
 /**
@@ -58,10 +72,8 @@ export class RipgrepRunner {
         ? options.targetEncodings
         : DEFAULT_TARGET_ENCODINGS;
 
-    // 検索結果を蓄積するマップ (ファイルパス -> FileSearchResult)
-    const fileResultMap = new Map<string, FileSearchResult>();
-    // 重複防止用セット (filePath:lineNumber:columnNumber -> true)
-    const seenMatchKeys = new Set<string>();
+    // 検索結果を蓄積するマップ (ファイルパス -> FileSearchResultInternal)
+    const fileResultMap = new Map<string, FileSearchResultInternal>();
 
     let totalMatchCount = 0;
     let isTruncated = false;
@@ -89,7 +101,7 @@ export class RipgrepRunner {
         progressUpdateTimer = null;
         const results = this.getSortedResults(fileResultMap);
         onProgress(results, totalMatchCount, results.length, isTruncated);
-      }, 60);
+      }, 80);
     };
 
     // 各エンコーディングに対して ripgrep プロセスを起動
@@ -123,7 +135,6 @@ export class RipgrepRunner {
                 matchData,
                 workspaceFolders,
                 fileResultMap,
-                seenMatchKeys,
                 encoding
               );
 
@@ -136,6 +147,9 @@ export class RipgrepRunner {
                   this.cancel();
                 }
 
+                notifyProgress();
+              } else {
+                // 既存行の文字コード改善・置換が行われた場合も進捗を反映
                 notifyProgress();
               }
             }
@@ -221,9 +235,213 @@ export class RipgrepRunner {
   }
 
   /**
+   * テキスト行のデコード品質スコアを算出する
+   * 文字化け (置換文字 \uFFFD や不正文字) は大幅減点、日本語が正しく読めている場合は加点
+   */
+  private calculateQualityScore(lineText: string): number {
+    let score = 0;
+
+    // 1. Unicode 置換文字 (\uFFFD, \uFFFE, \u0000) のチェック (文字化けの決定打)
+    const replacementChars = lineText.match(/[\uFFFD\uFFFE\u0000]/g);
+    if (replacementChars) {
+      score -= replacementChars.length * 100;
+    }
+
+    // 2. 不正制御文字 (\x01-\x08, \x0B, \x0C, \x0E-\x1F) のチェック
+    const controlChars = lineText.match(/[\x01-\x08\x0B\x0C\x0E-\x1F]/g);
+    if (controlChars) {
+      score -= controlChars.length * 50;
+    }
+
+    // 3. 正常な日本語文字 (ひらがな・カタカナ・常用漢字・日本語約物) のチェック
+    const japaneseChars = lineText.match(/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\u3000-\u303F]/g);
+    if (japaneseChars) {
+      score += Math.min(50, japaneseChars.length * 5);
+    }
+
+    // 4. 半角カナ文字化けの判定 (SJIS/EUC-JP の誤デコードで発生する大量の連続半角カナ)
+    const halfWidthKana = lineText.match(/[\uFF61-\uFF9F]/g);
+    if (halfWidthKana) {
+      // ひらがな・漢字が皆無で半角カナだけが連続している場合は文字化けの可能性が高い
+      if (!japaneseChars || japaneseChars.length === 0) {
+        score -= halfWidthKana.length * 10;
+      }
+    }
+
+    return score;
+  }
+
+  /**
+   * 1件の ripgrep マッチデータを FileSearchResult にマッピング・重複排除・文字コード品質評価して格納する
+   * @returns 新規に行が追加された場合は true、既存行の置換・マージまたは破棄の場合は false
+   */
+  private handleMatchData(
+    matchData: RgMatchData,
+    workspaceFolders: string[],
+    fileResultMap: Map<string, FileSearchResultInternal>,
+    encoding: SupportedEncoding
+  ): boolean {
+    const filePath = matchData.path.text;
+    const lineNumber = matchData.line_number;
+
+    // 行テキストの改行文字を削除
+    const rawLineText = matchData.lines.text.replace(/\r?\n$/, '');
+
+    // 先頭のインデント (空白・タブ) をトリムしてコード内容を見やすくする (VS Code 標準検索と同様)
+    const indentMatch = rawLineText.match(/^[ \t]+/);
+    const leadingIndentLength = indentMatch ? indentMatch[0].length : 0;
+    const cleanLineText = leadingIndentLength > 0 ? rawLineText.substring(leadingIndentLength) : rawLineText;
+
+    // ripgrep のバイトオフセットを JavaScript / VS Code の文字インデックス (UTF-16) に変換
+    const convertedSubmatches: Submatch[] = [];
+    let charSearchCursor = 0;
+    let originalFirstCol = 1;
+
+    for (let i = 0; i < matchData.submatches.length; i++) {
+      const sub = matchData.submatches[i];
+      const matchText = sub.match.text;
+
+      // 元の行での出現位置 (ジャンプ用列番号の計算)
+      if (i === 0) {
+        const rawIdx = rawLineText.indexOf(matchText);
+        originalFirstCol = rawIdx !== -1 ? rawIdx + 1 : sub.start + 1;
+      }
+
+      // トリム後の表示用行テキスト内での出現位置を検索 (行内の前のマッチ位置以降から探す)
+      const foundIndex = cleanLineText.indexOf(matchText, charSearchCursor);
+
+      if (foundIndex !== -1) {
+        convertedSubmatches.push({
+          matchText,
+          start: foundIndex,
+          end: foundIndex + matchText.length
+        });
+        charSearchCursor = foundIndex + matchText.length;
+      } else {
+        // 万が一 indexOf で見つからない場合のフォールバック (インデント分を安全に減算)
+        const fallbackStart = Math.max(0, sub.start - leadingIndentLength);
+        const fallbackEnd = Math.max(fallbackStart + matchText.length, sub.end - leadingIndentLength);
+        convertedSubmatches.push({
+          matchText,
+          start: fallbackStart,
+          end: fallbackEnd
+        });
+      }
+    }
+
+    // 列番号はファイルオープンジャンプ用の元行 1 始まり文字インデックス
+    const columnNumber = originalFirstCol;
+
+    // ファイル検索結果オブジェクトの取得または新規作成
+    let fileResult = fileResultMap.get(filePath);
+    if (!fileResult) {
+      const relativePath = this.getRelativePath(filePath, workspaceFolders);
+      const parsedPath = path.posix.parse(relativePath);
+      const fileName = parsedPath.base;
+      const dirPath = parsedPath.dir === '.' ? '' : parsedPath.dir;
+
+      fileResult = {
+        filePath,
+        relativePath,
+        fileName,
+        dirPath,
+        matches: [],
+        primaryEncoding: encoding,
+        lineMap: new Map<number, SearchMatchInternal>()
+      };
+      fileResultMap.set(filePath, fileResult);
+    }
+
+    // 行テキストの品質スコアを算出 (文字化けの有無、日本語の正確さ)
+    const qualityScore = this.calculateQualityScore(cleanLineText);
+
+    const newMatchInternal: SearchMatchInternal = {
+      lineNumber,
+      columnNumber,
+      lineText: cleanLineText,
+      submatches: convertedSubmatches,
+      encoding,
+      qualityScore
+    };
+
+    // 同一ファイルの同一行番号 (lineNumber) がすでに登録されているか確認
+    const existingMatch = fileResult.lineMap.get(lineNumber);
+
+    if (existingMatch) {
+      // 既存の行が存在する場合: 品質の高い方を優先して採用する
+      if (qualityScore > existingMatch.qualityScore) {
+        // 新しいマッチの方が品質が高い (文字化けなし、より正確なデコード) -> 既存の行を置換
+        existingMatch.lineText = cleanLineText;
+        existingMatch.submatches = convertedSubmatches;
+        existingMatch.columnNumber = columnNumber;
+        existingMatch.encoding = encoding;
+        existingMatch.qualityScore = qualityScore;
+
+        // ファイル全体のプライマリエンコーディングも再評価
+        this.updateFilePrimaryEncoding(fileResult);
+        return false;
+      } else if (qualityScore === existingMatch.qualityScore) {
+        // スコアが同じ場合: 追加のサブマッチがあればマージ
+        for (const sub of convertedSubmatches) {
+          const alreadyExists = existingMatch.submatches.some(
+            (s) => Math.abs(s.start - sub.start) <= 1 && s.matchText === sub.matchText
+          );
+          if (!alreadyExists) {
+            existingMatch.submatches.push(sub);
+          }
+        }
+        return false;
+      } else {
+        // 既存のマッチの方が品質が高い -> 新しい文字化けマッチは破棄
+        return false;
+      }
+    }
+
+    // 新規行の場合: マップおよびリストに追加
+    fileResult.lineMap.set(lineNumber, newMatchInternal);
+    fileResult.matches.push(newMatchInternal);
+
+    // ファイル全体のプライマリエンコーディングを更新
+    this.updateFilePrimaryEncoding(fileResult);
+
+    return true;
+  }
+
+  /**
+   * ファイル内の各マッチ行の品質と文字コードから、ファイル全体のプライマリエンコーディングを更新する
+   */
+  private updateFilePrimaryEncoding(fileResult: FileSearchResultInternal): void {
+    const encodingScores = new Map<SupportedEncoding, { count: number; totalScore: number }>();
+
+    for (const match of fileResult.matches) {
+      const internalMatch = match as SearchMatchInternal;
+      const stat = encodingScores.get(match.encoding) || { count: 0, totalScore: 0 };
+      stat.count++;
+      stat.totalScore += internalMatch.qualityScore || 0;
+      encodingScores.set(match.encoding, stat);
+    }
+
+    let bestEncoding: SupportedEncoding = fileResult.primaryEncoding || 'utf-8';
+    let maxScore = -Infinity;
+    let maxCount = 0;
+
+    for (const [enc, stat] of encodingScores.entries()) {
+      // 平均スコアと件数から最適な文字コードを選択
+      const avgScore = stat.totalScore / stat.count;
+      if (avgScore > maxScore || (avgScore === maxScore && stat.count > maxCount)) {
+        maxScore = avgScore;
+        maxCount = stat.count;
+        bestEncoding = enc;
+      }
+    }
+
+    fileResult.primaryEncoding = bestEncoding;
+  }
+
+  /**
    * 結果マップからファイルパス順・行番号順にソートされた配列を取得する
    */
-  private getSortedResults(fileResultMap: Map<string, FileSearchResult>): FileSearchResult[] {
+  private getSortedResults(fileResultMap: Map<string, FileSearchResultInternal>): FileSearchResult[] {
     const results = Array.from(fileResultMap.values());
 
     // 各ファイル内のマッチ行を行番号・列番号順にソート
@@ -406,107 +624,6 @@ export class RipgrepRunner {
   }
 
   /**
-   * 1件の ripgrep マッチデータを FileSearchResult にマッピング・重複排除して格納する
-   * @returns 新規に追加された場合は true
-   */
-  private handleMatchData(
-    matchData: RgMatchData,
-    workspaceFolders: string[],
-    fileResultMap: Map<string, FileSearchResult>,
-    seenMatchKeys: Set<string>,
-    encoding: SupportedEncoding
-  ): boolean {
-    const filePath = matchData.path.text;
-    const lineNumber = matchData.line_number;
-
-    // 行テキストの改行文字を削除
-    const rawLineText = matchData.lines.text.replace(/\r?\n$/, '');
-
-    // 先頭のインデント (空白・タブ) をトリムしてコード内容を見やすくする (VS Code 標準検索と同様)
-    const indentMatch = rawLineText.match(/^[ \t]+/);
-    const leadingIndentLength = indentMatch ? indentMatch[0].length : 0;
-    const cleanLineText = leadingIndentLength > 0 ? rawLineText.substring(leadingIndentLength) : rawLineText;
-
-    // ripgrep のバイトオフセットを JavaScript / VS Code の文字インデックス (UTF-16) に変換
-    const convertedSubmatches: Array<{ matchText: string; start: number; end: number }> = [];
-    let charSearchCursor = 0;
-    let originalFirstCol = 1;
-
-    for (let i = 0; i < matchData.submatches.length; i++) {
-      const sub = matchData.submatches[i];
-      const matchText = sub.match.text;
-
-      // 元の行での出現位置 (ジャンプ用列番号の計算)
-      if (i === 0) {
-        const rawIdx = rawLineText.indexOf(matchText);
-        originalFirstCol = rawIdx !== -1 ? rawIdx + 1 : sub.start + 1;
-      }
-
-      // トリム後の表示用行テキスト内での出現位置を検索 (行内の前のマッチ位置以降から探す)
-      const foundIndex = cleanLineText.indexOf(matchText, charSearchCursor);
-
-      if (foundIndex !== -1) {
-        convertedSubmatches.push({
-          matchText,
-          start: foundIndex,
-          end: foundIndex + matchText.length
-        });
-        charSearchCursor = foundIndex + matchText.length;
-      } else {
-        // 万が一 indexOf で見つからない場合のフォールバック (インデント分を安全に減算)
-        const fallbackStart = Math.max(0, sub.start - leadingIndentLength);
-        const fallbackEnd = Math.max(fallbackStart + matchText.length, sub.end - leadingIndentLength);
-        convertedSubmatches.push({
-          matchText,
-          start: fallbackStart,
-          end: fallbackEnd
-        });
-      }
-    }
-
-    // 列番号はファイルオープンジャンプ用の元行 1 始まり文字インデックス
-    const columnNumber = originalFirstCol;
-
-    // 重複判定キー (同一ファイル・行・列での重複を排除)
-    const matchKey = `${filePath}:${lineNumber}:${columnNumber}`;
-    if (seenMatchKeys.has(matchKey)) {
-      return false;
-    }
-    seenMatchKeys.add(matchKey);
-
-    const relativePath = this.getRelativePath(filePath, workspaceFolders);
-
-    let fileResult = fileResultMap.get(filePath);
-    if (!fileResult) {
-      // ファイル名とディレクトリパスを分解
-      const parsedPath = path.posix.parse(relativePath);
-      const fileName = parsedPath.base;
-      const dirPath = parsedPath.dir === '.' ? '' : parsedPath.dir;
-
-      fileResult = {
-        filePath,
-        relativePath,
-        fileName,
-        dirPath,
-        matches: [],
-        primaryEncoding: encoding
-      };
-      fileResultMap.set(filePath, fileResult);
-    }
-
-    const searchMatch: SearchMatch = {
-      lineNumber,
-      columnNumber,
-      lineText: cleanLineText,
-      submatches: convertedSubmatches,
-      encoding
-    };
-
-    fileResult.matches.push(searchMatch);
-    return true;
-  }
-
-  /**
    * ワークスペースルートに対する相対パスを算出する
    */
   private getRelativePath(filePath: string, workspaceFolders: string[]): string {
@@ -519,3 +636,4 @@ export class RipgrepRunner {
     return filePath.replace(/\\/g, '/');
   }
 }
+
