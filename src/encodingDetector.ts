@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import { SupportedEncoding } from './types';
 
 /**
- * ファイルのエンコーディングを正確に自動判定するクラス
- * UTF-8, UTF-16LE/BE, EUC-JP, Shift_JIS, EUC-KR, GB18030, Big5, Windows-1252 を高精度に識別
+ * ファイルのエンコーディングを高精度に自動判定するクラス
+ * UTF-8, UTF-16LE/BE, EUC-JP, Shift_JIS, EUC-KR, GB18030, Big5, Windows-1252 を正確に識別
  */
 export class EncodingDetector {
   /** 判定結果のキャッシュ (ファイルパス -> エンコーディング) */
@@ -152,16 +152,16 @@ export class EncodingDetector {
     }
 
     // 4. 各レガシーエンコーディングのスコアリング
+    const eucKrScore = this.scoreEucKr(buffer);
     const eucJpScore = this.scoreEucJp(buffer);
     const sjisScore = this.scoreShiftJis(buffer);
-    const eucKrScore = this.scoreEucKr(buffer);
     const big5Score = this.scoreBig5(buffer);
     const gbScore = this.scoreGb18030(buffer);
 
     const candidates: Array<{ encoding: SupportedEncoding; score: number; isValid: boolean }> = [
+      { encoding: 'euc-kr', score: eucKrScore.score, isValid: eucKrScore.isValid },
       { encoding: 'euc-jp', score: eucJpScore.score, isValid: eucJpScore.isValid },
       { encoding: 'shift_jis', score: sjisScore.score, isValid: sjisScore.isValid },
-      { encoding: 'euc-kr', score: eucKrScore.score, isValid: eucKrScore.isValid },
       { encoding: 'big5', score: big5Score.score, isValid: big5Score.isValid },
       { encoding: 'gb18030', score: gbScore.score, isValid: gbScore.isValid }
     ];
@@ -180,6 +180,7 @@ export class EncodingDetector {
 
   /**
    * EUC-KR (韓国語, KS X 1001) のスコアリング
+   * 完成型ハングル音節 (0xB0A1-0xC8FE: 2,350字) およびハングル字母 (0xA4A1-0xA4D3) を検出
    */
   private static scoreEucKr(buffer: Buffer): { isValid: boolean; score: number } {
     let score = 0;
@@ -198,21 +199,25 @@ export class EncodingDetector {
         if (i + 1 < len) {
           const b2 = buffer[i + 1];
           if (b2 >= 0xA1 && b2 <= 0xFE) {
-            // EUC-KR 完成型ハングル領域 (0xB0A1 - 0xC8FE)
+            // EUC-KR 完成型ハングル領域 (0xB0A1 - 0xC8FE: 가〜힣) -> 最重要シグナル
             if (b >= 0xB0 && b <= 0xC8) {
-              score += 15;
+              score += 25;
               hangulCount++;
             }
-            // EUC-KR ハングル字母領域 (0xA4A1 - 0xA4D3)
+            // EUC-KR ハングル字母領域 (0xA4A1 - 0xA4D3: ㄱ〜ㅣ)
             else if (b === 0xA4 && b2 >= 0xA1 && b2 <= 0xD3) {
-              score += 10;
+              score += 20;
               hangulCount++;
             }
-            // EUC-KR 漢字・記号領域
+            // EUC-KR 漢字領域 (0xCA - 0xFD)
             else if (b >= 0xCA && b <= 0xFD) {
-              score += 4;
+              score += 5;
+            }
+            // EUC-KR 記号・約物領域 (0xA1 - 0xAC)
+            else if (b >= 0xA1 && b <= 0xAC) {
+              score += 3;
             } else {
-              score += 2;
+              score += 1;
             }
             i += 2;
           } else {
@@ -224,7 +229,7 @@ export class EncodingDetector {
           i++;
         }
       } else {
-        // EUC-KR には 0x80..0xA0, 0xFF は存在しない
+        // EUC-KR 不正バイト (0x80..0xA0, 0xFF)
         invalidCount++;
         i++;
       }
@@ -236,6 +241,7 @@ export class EncodingDetector {
 
   /**
    * EUC-JP (日本語) のスコアリング
+   * ひらがな (0xA4A1-0xA4F3), カタカナ (0xA5A1-0xA5F6), 半角カナ (0x8E), 漢字を検出
    */
   private static scoreEucJp(buffer: Buffer): { isValid: boolean; score: number } {
     let score = 0;
@@ -254,21 +260,25 @@ export class EncodingDetector {
         if (i + 1 < len) {
           const b2 = buffer[i + 1];
           if (b2 >= 0xA1 && b2 <= 0xFE) {
-            // EUC-JP ひらがな領域 (0xA4A1 - 0xA4F3)
+            // EUC-JP ひらがな領域 (0xA4A1 - 0xA4F3) -> 日本語最重要シグナル
             if (b === 0xA4 && b2 >= 0xA1 && b2 <= 0xF3) {
-              score += 15;
+              score += 25;
               kanaCount++;
             }
             // EUC-JP カタカナ領域 (0xA5A1 - 0xA5F6)
             else if (b === 0xA5 && b2 >= 0xA1 && b2 <= 0xF6) {
-              score += 12;
+              score += 20;
               kanaCount++;
             }
             // EUC-JP 漢字領域 (0xB0A1 - 0xF4FE)
             else if (b >= 0xB0 && b <= 0xF4) {
               score += 5;
+            }
+            // EUC-JP 記号 (0xA1 - 0xA8)
+            else if (b >= 0xA1 && b <= 0xA8) {
+              score += 3;
             } else {
-              score += 2;
+              score += 1;
             }
             i += 2;
           } else {
@@ -282,7 +292,7 @@ export class EncodingDetector {
       } else if (b === 0x8E) {
         // 半角カナ (0x8E + 0xA1-0xDF)
         if (i + 1 < len && buffer[i + 1] >= 0xA1 && buffer[i + 1] <= 0xDF) {
-          score += 4;
+          score += 6;
           kanaCount++;
           i += 2;
         } else {
@@ -298,7 +308,7 @@ export class EncodingDetector {
           buffer[i + 2] >= 0xA1 &&
           buffer[i + 2] <= 0xFE
         ) {
-          score += 4;
+          score += 5;
           i += 3;
         } else {
           invalidCount++;
@@ -317,6 +327,7 @@ export class EncodingDetector {
 
   /**
    * Shift_JIS / CP932 (日本語) のスコアリング
+   * ひらがな (0x829F-0x82F1), カタカナ (0x8340-0x8396), 半角カナ (0xA1-0xDF), 漢字を検出
    */
   private static scoreShiftJis(buffer: Buffer): { isValid: boolean; score: number } {
     let score = 0;
@@ -333,7 +344,7 @@ export class EncodingDetector {
         i++;
       } else if (b >= 0xA1 && b <= 0xDF) {
         // 1バイト半角カナ (0xA1-0xDF)
-        score += 3;
+        score += 4;
         kanaCount++;
         i++;
       } else if ((b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xFC)) {
@@ -341,14 +352,14 @@ export class EncodingDetector {
         if (i + 1 < len) {
           const b2 = buffer[i + 1];
           if ((b2 >= 0x40 && b2 <= 0x7E) || (b2 >= 0x80 && b2 <= 0xFC)) {
-            // SJIS ひらがな領域 (0x829F - 0x82F1)
+            // SJIS ひらがな領域 (0x829F - 0x82F1) -> 日本語最重要シグナル
             if (b === 0x82 && b2 >= 0x9F && b2 <= 0xF1) {
-              score += 15;
+              score += 25;
               kanaCount++;
             }
             // SJIS カタカナ領域 (0x8340 - 0x8396)
             else if (b === 0x83 && b2 >= 0x40 && b2 <= 0x96) {
-              score += 12;
+              score += 20;
               kanaCount++;
             }
             // SJIS 漢字領域
@@ -379,10 +390,13 @@ export class EncodingDetector {
 
   /**
    * Big5 (繁体字中国語) のスコアリング
+   * 2バイト目に 0x40-0x7E (ASCII範囲) が約50%出現するのが Big5 の最大の特徴
    */
   private static scoreBig5(buffer: Buffer): { isValid: boolean; score: number } {
     let score = 0;
     let invalidCount = 0;
+    let big5SpecificCount = 0;
+    let totalCharCount = 0;
     let i = 0;
     const len = buffer.length;
 
@@ -394,13 +408,16 @@ export class EncodingDetector {
       } else if (b >= 0xA1 && b <= 0xF9) {
         if (i + 1 < len) {
           const b2 = buffer[i + 1];
-          if ((b2 >= 0x40 && b2 <= 0x7E) || (b2 >= 0xA1 && b2 <= 0xFE)) {
-            // Big5 常用字領域 (0xA440 - 0xC67E)
-            if (b >= 0xA4 && b <= 0xC6) {
-              score += 8;
-            } else {
-              score += 4;
-            }
+          if (b2 >= 0x40 && b2 <= 0x7E) {
+            // Big5 固有の 2バイト目 (0x40-0x7E): EUC系には絶対に現れない
+            big5SpecificCount++;
+            totalCharCount++;
+            score += 15;
+            i += 2;
+          } else if (b2 >= 0xA1 && b2 <= 0xFE) {
+            // 2バイト目が 0xA1-0xFE (EUC系とも重複する領域)
+            totalCharCount++;
+            score += 3;
             i += 2;
           } else {
             invalidCount++;
@@ -416,7 +433,12 @@ export class EncodingDetector {
       }
     }
 
-    const isValid = invalidCount === 0 || score > invalidCount * 10;
+    // 2バイト目 0x40-0x7E が1つも出現しない場合は Big5 ではない (EUC-KR または EUC-JP の誤認防止)
+    if (totalCharCount > 0 && big5SpecificCount === 0) {
+      return { isValid: false, score: 0 };
+    }
+
+    const isValid = invalidCount === 0 || (big5SpecificCount > 0 && score > invalidCount * 10);
     return { isValid, score: isValid ? score - invalidCount * 5 : 0 };
   }
 
@@ -426,6 +448,7 @@ export class EncodingDetector {
   private static scoreGb18030(buffer: Buffer): { isValid: boolean; score: number } {
     let score = 0;
     let invalidCount = 0;
+    let gbSpecificCount = 0;
     let i = 0;
     const len = buffer.length;
 
@@ -440,18 +463,18 @@ export class EncodingDetector {
           if (b2 >= 0x40 && b2 <= 0xFE && b2 !== 0x7F) {
             // 2バイト GBK/GB18030
             if (b >= 0xB0 && b <= 0xF7 && b2 >= 0xA1 && b2 <= 0xFE) {
-              // GBK 常用漢字領域
-              score += 8;
+              score += 5;
             } else {
-              score += 3;
+              score += 2;
             }
             i += 2;
           } else if (b2 >= 0x30 && b2 <= 0x39 && i + 3 < len) {
             const b3 = buffer[i + 2];
             const b4 = buffer[i + 3];
             if (b3 >= 0x81 && b3 <= 0xFE && b4 >= 0x30 && b4 <= 0x39) {
-              // 4バイト GB18030
-              score += 4;
+              // 4バイト GB18030 固有シーケンス
+              gbSpecificCount++;
+              score += 15;
               i += 4;
             } else {
               invalidCount++;
@@ -471,7 +494,7 @@ export class EncodingDetector {
       }
     }
 
-    const isValid = invalidCount === 0 || score > invalidCount * 10;
+    const isValid = invalidCount === 0 || (gbSpecificCount > 0 && score > invalidCount * 10);
     return { isValid, score: isValid ? score - invalidCount * 5 : 0 };
   }
 }
