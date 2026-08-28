@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import { SupportedEncoding } from './types';
 
 /**
- * WHATWG Encoding 規格 (TextDecoder) に基づく高精度文字コード自動判定エンジン
+ * WHATWG Encoding 規格 (TextDecoder) に基づく堅牢な高精度文字コード自動判定エンジン
  */
 export class EncodingDetector {
   /** 判定結果のキャッシュ (ファイルパス -> エンコーディング) */
@@ -84,7 +84,7 @@ export class EncodingDetector {
       }
     }
 
-    // 3. ASCII のみかチェック
+    // 3. ASCII のみかチェック (非ASCIIバイトが一切ない場合は UTF-8)
     let isAllAscii = true;
     for (let i = 0; i < len; i++) {
       if (buffer[i] > 0x7F) {
@@ -96,7 +96,7 @@ export class EncodingDetector {
       return 'utf-8';
     }
 
-    // 4. UTF-8 の厳密デコード検証
+    // 4. UTF-8 の厳密デコード検証 (BOMなしUTF-8の判定)
     try {
       const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
       utf8Decoder.decode(buffer);
@@ -105,7 +105,7 @@ export class EncodingDetector {
       // UTF-8 ではない (レガシーエンコーディング)
     }
 
-    // 5. 各エンコーディングでのデコード試行 & テキスト品質スコアリング
+    // 5. 各レガシーエンコーディングでのデコード試行 & テキスト品質スコアリング
     const candidateEncodings: SupportedEncoding[] = [
       'euc-kr',
       'euc-jp',
@@ -119,66 +119,65 @@ export class EncodingDetector {
 
     for (const enc of candidateEncodings) {
       try {
-        // WHATWG TextDecoder でデコード (不正シーケンスは fatal で弾く)
-        // バッファ末尾でマルチバイトが切れている可能性を考慮し、fatal 失敗時はフォールバック
-        let text = '';
-        try {
-          const fatalDecoder = new TextDecoder(enc, { fatal: true });
-          text = fatalDecoder.decode(buffer);
-        } catch {
-          // 末尾を少し削って再試行
-          if (buffer.length > 4) {
-            const trimmedBuf = buffer.subarray(0, buffer.length - 4);
-            const fatalDecoder = new TextDecoder(enc, { fatal: true });
-            text = fatalDecoder.decode(trimmedBuf);
-          } else {
-            continue;
-          }
-        }
+        const decoder = new TextDecoder(enc, { fatal: false });
+        const text = decoder.decode(buffer);
 
         let score = 0;
 
-        // ハングル文字 (EUC-KR 特有の音節・字母)
+        // 置換文字 (\uFFFD) は文字化けの決定打
+        const fffd = text.match(/\uFFFD/g);
+        if (fffd) {
+          score -= fffd.length * 100;
+        }
+
+        // 不正制御文字
+        const control = text.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g);
+        if (control) {
+          score -= control.length * 50;
+        }
+
+        // ハングル音節・字母 (\uAC00-\uD7AF, \u1100-\u11FF, \u3130-\u318F)
         const hangul = text.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g);
-        if (hangul) {
+        if (hangul && hangul.length > 0) {
           if (enc === 'euc-kr') {
-            score += 100 + hangul.length * 10;
+            score += 1000 + hangul.length * 20;
           } else {
-            score -= 50;
+            score -= 500;
           }
         }
 
-        // 日本語ひらがな・カタカナ (EUC-JP / Shift_JIS 特有)
-        const kana = text.match(/[\u3040-\u309F\u30A0-\u30FF]/g);
-        if (kana) {
+        // 日本語ひらがな (\u3040-\u309F)
+        const hiragana = text.match(/[\u3040-\u309F]/g);
+        // 日本語カタカナ (\u30A0-\u30FF)
+        const katakana = text.match(/[\u30A0-\u30FF]/g);
+        const hasKana = (hiragana && hiragana.length > 0) || (katakana && katakana.length > 0);
+
+        if (hasKana) {
           if (enc === 'euc-jp' || enc === 'shift_jis') {
-            score += 100 + kana.length * 10;
+            score += 1000 + (hiragana ? hiragana.length * 20 : 0) + (katakana ? katakana.length * 10 : 0);
           } else {
-            score -= 50;
+            score -= 500;
           }
         }
 
-        // CJK 統合漢字
+        // 半角カナ (\uFF61-\uFF9F) のみの文字化けペナルティ
+        // (ひらがな・カタカナ・ハングルが皆無で半角カナだけ ➔ 他のエンコーディングの誤デコードによる文字化け)
+        const halfKana = text.match(/[\uFF61-\uFF9F]/g);
+        if (halfKana && halfKana.length > 0) {
+          if (!hasKana && (!hangul || hangul.length === 0)) {
+            score -= 1000 + halfKana.length * 20;
+          }
+        }
+
+        // CJK 統合漢字 (\u4E00-\u9FAF, \u3400-\u4DBF)
         const kanji = text.match(/[\u4E00-\u9FAF\u3400-\u4DBF]/g);
         if (kanji) {
-          score += kanji.length * 4;
-        }
-
-        // 誤デコードによる不自然な半角カナ連続 (SJIS / EUC-JP の典型的な文字化け)
-        const halfKana = text.match(/[\uFF61-\uFF9F]/g);
-        if (halfKana && (!kana || kana.length === 0)) {
-          score -= halfKana.length * 15;
-        }
-
-        // 不正な制御文字のチェック
-        const controlChars = text.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g);
-        if (controlChars) {
-          score -= controlChars.length * 30;
+          score += kanji.length * 5;
         }
 
         results.push({ encoding: enc, score });
       } catch {
-        // このエンコーディングではデコード不可能
+        // デコード不能
       }
     }
 

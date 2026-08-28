@@ -494,21 +494,27 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     const config = vscode.workspace.getConfiguration('multiEncodingSearch');
     const encodingsConfig = config.get<Record<string, boolean>>('encodings') || {};
 
+    const isEnabled = (key: string): boolean => {
+      if (encodingsConfig && encodingsConfig[key] !== undefined) {
+        return encodingsConfig[key] !== false;
+      }
+      const direct = config.get<boolean>(`encodings.${key}`);
+      return direct !== false;
+    };
+
     const encodings: SupportedEncoding[] = [];
 
-    // 各エンコーディングのオン/オフ判定 (設定未定義の場合はすべてデフォルト true)
-    if (encodingsConfig.utf8 !== false) encodings.push('utf-8');
-    if (encodingsConfig.eucjp !== false) encodings.push('euc-jp');
-    if (encodingsConfig.shiftjis !== false) encodings.push('shift_jis');
-    if (encodingsConfig.utf16le !== false) encodings.push('utf-16le');
-    if (encodingsConfig.utf16be !== false) encodings.push('utf-16be');
-    if (encodingsConfig.windows1252 !== false) encodings.push('windows-1252');
-    if (encodingsConfig.gb18030 !== false) encodings.push('gb18030');
-    if (encodingsConfig.gbk !== false) encodings.push('gbk');
-    if (encodingsConfig.big5 !== false) encodings.push('big5');
-    if (encodingsConfig.euckr !== false) encodings.push('euc-kr');
+    if (isEnabled('utf8')) encodings.push('utf-8');
+    if (isEnabled('eucjp')) encodings.push('euc-jp');
+    if (isEnabled('shiftjis')) encodings.push('shift_jis');
+    if (isEnabled('utf16le')) encodings.push('utf-16le');
+    if (isEnabled('utf16be')) encodings.push('utf-16be');
+    if (isEnabled('windows1252')) encodings.push('windows-1252');
+    if (isEnabled('gb18030')) encodings.push('gb18030');
+    if (isEnabled('gbk')) encodings.push('gbk');
+    if (isEnabled('big5')) encodings.push('big5');
+    if (isEnabled('euckr')) encodings.push('euc-kr');
 
-    // 万が一すべてオフの場合は最低限 utf-8 を対象にする
     if (encodings.length === 0) {
       encodings.push('utf-8');
     }
