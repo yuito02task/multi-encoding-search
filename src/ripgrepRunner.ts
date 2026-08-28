@@ -237,7 +237,7 @@ export class RipgrepRunner {
 
   /**
    * テキスト行のデコード品質スコアを算出する
-   * 文字化け (置換文字 \uFFFD や不正文字) は大幅減点、日本語が正しく読めている場合は加点
+   * 文字化け (置換文字 \uFFFD や不正文字) は大幅減点、日本語・ハングル・漢字等が正しく読めている場合は加点
    */
   private calculateQualityScore(lineText: string): number {
     let score = 0;
@@ -254,17 +254,29 @@ export class RipgrepRunner {
       score -= controlChars.length * 50;
     }
 
-    // 3. 正常な日本語文字 (ひらがな・カタカナ・常用漢字・日本語約物) のチェック
-    const japaneseChars = lineText.match(/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\u3000-\u303F]/g);
-    if (japaneseChars) {
-      score += Math.min(50, japaneseChars.length * 5);
+    // 3. 正常な日本語文字 (ひらがな・カタカナ・日本語約物) のチェック
+    const japaneseKana = lineText.match(/[\u3040-\u309F\u30A0-\u30FF\u3000-\u303F]/g);
+    if (japaneseKana) {
+      score += Math.min(50, japaneseKana.length * 6);
     }
 
-    // 4. 半角カナ文字化けの判定 (SJIS/EUC-JP の誤デコードで発生する大量の連続半角カナ)
+    // 4. 正常なハングル文字 (音節・字母) のチェック
+    const koreanHangul = lineText.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g);
+    if (koreanHangul) {
+      score += Math.min(60, koreanHangul.length * 6);
+    }
+
+    // 5. 正常な CJK 漢字のチェック
+    const cjkIdeographs = lineText.match(/[\u4E00-\u9FAF\u3400-\u4DBF]/g);
+    if (cjkIdeographs) {
+      score += Math.min(40, cjkIdeographs.length * 4);
+    }
+
+    // 6. 半角カナ文字化けの判定 (SJIS/EUC-JP の誤デコードで発生する大量の連続半角カナ)
     const halfWidthKana = lineText.match(/[\uFF61-\uFF9F]/g);
     if (halfWidthKana) {
-      // ひらがな・漢字が皆無で半角カナだけが連続している場合は文字化けの可能性が高い
-      if (!japaneseChars || japaneseChars.length === 0) {
+      // ひらがな・ハングル・漢字が皆無で半角カナだけが連続している場合は文字化けの可能性が高い
+      if ((!japaneseKana || japaneseKana.length === 0) && (!koreanHangul || koreanHangul.length === 0) && (!cjkIdeographs || cjkIdeographs.length === 0)) {
         score -= halfWidthKana.length * 10;
       }
     }

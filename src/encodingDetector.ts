@@ -3,6 +3,7 @@ import { SupportedEncoding } from './types';
 
 /**
  * ファイルのエンコーディングを正確に自動判定するクラス
+ * UTF-8, UTF-16LE/BE, EUC-JP, Shift_JIS, EUC-KR, GB18030, Big5, Windows-1252 を高精度に識別
  */
 export class EncodingDetector {
   /** 判定結果のキャッシュ (ファイルパス -> エンコーディング) */
@@ -105,13 +106,13 @@ export class EncodingDetector {
         utf8MultiByteCount++;
         i += 2;
       } else if ((b & 0xF0) === 0xE0) {
-        // 3バイトシーケンス (日本語の多くがここ)
+        // 3バイトシーケンス (日本語・韓国語・中国語の多くがここ)
         if (
           i + 2 >= len ||
           (buffer[i + 1] & 0xC0) !== 0x80 ||
           (buffer[i + 2] & 0xC0) !== 0x80 ||
-          (b === 0xE0 && buffer[i + 1] < 0xA0) || // 過剰エンコード
-          (b === 0xED && buffer[i + 1] >= 0xA0)   // サロゲートペア領域
+          (b === 0xE0 && buffer[i + 1] < 0xA0) ||
+          (b === 0xED && buffer[i + 1] >= 0xA0)
         ) {
           isStrictUtf8 = false;
           break;
@@ -134,57 +135,56 @@ export class EncodingDetector {
         utf8MultiByteCount++;
         i += 4;
       } else {
-        // 不正なUTF-8先頭バイト (0x80-0xC1, 0xF5-0xFF)
+        // 不正なUTF-8先頭バイト
         isStrictUtf8 = false;
         break;
       }
     }
 
-    // もし厳密にUTF-8であり、マルチバイトUTF-8文字が含まれている場合は確実に UTF-8
+    // 厳密にUTF-8であり、マルチバイト文字が含まれている場合は確実に UTF-8
     if (isStrictUtf8 && utf8MultiByteCount > 0) {
       return 'utf-8';
     }
 
-    // もし全文字が ASCII のみの場合も UTF-8 を基本とする
+    // 全文字が ASCII のみの場合も UTF-8 を基本とする
     if (isStrictUtf8 && asciiCount === len) {
       return 'utf-8';
     }
 
-    // 4. EUC-JP / Shift_JIS (CP932) / GB18030 / Big5 / EUC-KR のスコアリング判定
-    const eucScore = this.scoreEucJp(buffer);
+    // 4. 各レガシーエンコーディングのスコアリング
+    const eucJpScore = this.scoreEucJp(buffer);
     const sjisScore = this.scoreShiftJis(buffer);
+    const eucKrScore = this.scoreEucKr(buffer);
+    const big5Score = this.scoreBig5(buffer);
     const gbScore = this.scoreGb18030(buffer);
 
-    // EUC-JP と Shift_JIS の比較
-    if (eucScore.isValid && eucScore.score > 0 && eucScore.score >= sjisScore.score) {
-      return 'euc-jp';
+    const candidates: Array<{ encoding: SupportedEncoding; score: number; isValid: boolean }> = [
+      { encoding: 'euc-jp', score: eucJpScore.score, isValid: eucJpScore.isValid },
+      { encoding: 'shift_jis', score: sjisScore.score, isValid: sjisScore.isValid },
+      { encoding: 'euc-kr', score: eucKrScore.score, isValid: eucKrScore.isValid },
+      { encoding: 'big5', score: big5Score.score, isValid: big5Score.isValid },
+      { encoding: 'gb18030', score: gbScore.score, isValid: gbScore.isValid }
+    ];
+
+    // 有効かつスコアが正のものを降順ソート
+    const validCandidates = candidates
+      .filter((c) => c.isValid && c.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    if (validCandidates.length > 0) {
+      return validCandidates[0].encoding;
     }
 
-    if (sjisScore.isValid && sjisScore.score > 0 && sjisScore.score > eucScore.score) {
-      return 'shift_jis';
-    }
-
-    if (gbScore.isValid && gbScore.score > eucScore.score && gbScore.score > sjisScore.score) {
-      return 'gb18030';
-    }
-
-    if (eucScore.isValid && eucScore.score > 0) {
-      return 'euc-jp';
-    }
-    if (sjisScore.isValid && sjisScore.score > 0) {
-      return 'shift_jis';
-    }
-
-    // いずれにも該当しない場合は UTF-8 にフォールバック
     return 'utf-8';
   }
 
   /**
-   * EUC-JP としてのスコアと妥当性を計算
+   * EUC-KR (韓国語, KS X 1001) のスコアリング
    */
-  private static scoreEucJp(buffer: Buffer): { isValid: boolean; score: number } {
+  private static scoreEucKr(buffer: Buffer): { isValid: boolean; score: number } {
     let score = 0;
     let invalidCount = 0;
+    let hangulCount = 0;
     let i = 0;
     const len = buffer.length;
 
@@ -195,17 +195,74 @@ export class EncodingDetector {
         // ASCII
         i++;
       } else if (b >= 0xA1 && b <= 0xFE) {
-        // 2バイトコード (漢字、ひらがな、カタカナ、記号)
         if (i + 1 < len) {
           const b2 = buffer[i + 1];
           if (b2 >= 0xA1 && b2 <= 0xFE) {
-            // EUC-JP 日本語ひらがな領域 (0xA4A1 - 0xA4F3)
-            if (b === 0xA4 && b2 >= 0xA1 && b2 <= 0xF3) {
-              score += 10;
+            // EUC-KR 完成型ハングル領域 (0xB0A1 - 0xC8FE)
+            if (b >= 0xB0 && b <= 0xC8) {
+              score += 15;
+              hangulCount++;
             }
-            // EUC-JP 日本語カタカナ領域 (0xA5A1 - 0xA5F6)
+            // EUC-KR ハングル字母領域 (0xA4A1 - 0xA4D3)
+            else if (b === 0xA4 && b2 >= 0xA1 && b2 <= 0xD3) {
+              score += 10;
+              hangulCount++;
+            }
+            // EUC-KR 漢字・記号領域
+            else if (b >= 0xCA && b <= 0xFD) {
+              score += 4;
+            } else {
+              score += 2;
+            }
+            i += 2;
+          } else {
+            invalidCount++;
+            i++;
+          }
+        } else {
+          invalidCount++;
+          i++;
+        }
+      } else {
+        // EUC-KR には 0x80..0xA0, 0xFF は存在しない
+        invalidCount++;
+        i++;
+      }
+    }
+
+    const isValid = invalidCount === 0 || (hangulCount > 0 && score > invalidCount * 10);
+    return { isValid, score: isValid ? score - invalidCount * 5 : 0 };
+  }
+
+  /**
+   * EUC-JP (日本語) のスコアリング
+   */
+  private static scoreEucJp(buffer: Buffer): { isValid: boolean; score: number } {
+    let score = 0;
+    let invalidCount = 0;
+    let kanaCount = 0;
+    let i = 0;
+    const len = buffer.length;
+
+    while (i < len) {
+      const b = buffer[i];
+
+      if (b <= 0x7F) {
+        // ASCII
+        i++;
+      } else if (b >= 0xA1 && b <= 0xFE) {
+        if (i + 1 < len) {
+          const b2 = buffer[i + 1];
+          if (b2 >= 0xA1 && b2 <= 0xFE) {
+            // EUC-JP ひらがな領域 (0xA4A1 - 0xA4F3)
+            if (b === 0xA4 && b2 >= 0xA1 && b2 <= 0xF3) {
+              score += 15;
+              kanaCount++;
+            }
+            // EUC-JP カタカナ領域 (0xA5A1 - 0xA5F6)
             else if (b === 0xA5 && b2 >= 0xA1 && b2 <= 0xF6) {
-              score += 8;
+              score += 12;
+              kanaCount++;
             }
             // EUC-JP 漢字領域 (0xB0A1 - 0xF4FE)
             else if (b >= 0xB0 && b <= 0xF4) {
@@ -225,7 +282,8 @@ export class EncodingDetector {
       } else if (b === 0x8E) {
         // 半角カナ (0x8E + 0xA1-0xDF)
         if (i + 1 < len && buffer[i + 1] >= 0xA1 && buffer[i + 1] <= 0xDF) {
-          score += 3;
+          score += 4;
+          kanaCount++;
           i += 2;
         } else {
           invalidCount++;
@@ -247,22 +305,23 @@ export class EncodingDetector {
           i++;
         }
       } else {
-        // EUC-JP では現れない不正バイト (0x80-0x8D, 0x90-0xA0, 0xFF)
+        // EUC-JP 不正バイト
         invalidCount++;
         i++;
       }
     }
 
-    const isValid = invalidCount === 0 || score > invalidCount * 10;
+    const isValid = invalidCount === 0 || (kanaCount > 0 && score > invalidCount * 10);
     return { isValid, score: isValid ? score - invalidCount * 5 : 0 };
   }
 
   /**
-   * Shift_JIS (CP932) としてのスコアと妥当性を計算
+   * Shift_JIS / CP932 (日本語) のスコアリング
    */
   private static scoreShiftJis(buffer: Buffer): { isValid: boolean; score: number } {
     let score = 0;
     let invalidCount = 0;
+    let kanaCount = 0;
     let i = 0;
     const len = buffer.length;
 
@@ -273,8 +332,9 @@ export class EncodingDetector {
         // ASCII
         i++;
       } else if (b >= 0xA1 && b <= 0xDF) {
-        // 半角カナ
-        score += 2;
+        // 1バイト半角カナ (0xA1-0xDF)
+        score += 3;
+        kanaCount++;
         i++;
       } else if ((b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xFC)) {
         // 2バイト文字
@@ -283,13 +343,15 @@ export class EncodingDetector {
           if ((b2 >= 0x40 && b2 <= 0x7E) || (b2 >= 0x80 && b2 <= 0xFC)) {
             // SJIS ひらがな領域 (0x829F - 0x82F1)
             if (b === 0x82 && b2 >= 0x9F && b2 <= 0xF1) {
-              score += 10;
+              score += 15;
+              kanaCount++;
             }
             // SJIS カタカナ領域 (0x8340 - 0x8396)
             else if (b === 0x83 && b2 >= 0x40 && b2 <= 0x96) {
-              score += 8;
+              score += 12;
+              kanaCount++;
             }
-            // SJIS 漢字領域 (0x889F - 0x9872, 0x989F - 0xEA44)
+            // SJIS 漢字領域
             else if ((b >= 0x88 && b <= 0x9F) || (b >= 0xE0 && b <= 0xEA)) {
               score += 5;
             } else {
@@ -305,7 +367,50 @@ export class EncodingDetector {
           i++;
         }
       } else {
-        // 不正バイト (0x80, 0xA0, 0xFD-0xFF)
+        // SJIS 不正バイト (0x80, 0xA0, 0xFD-0xFF)
+        invalidCount++;
+        i++;
+      }
+    }
+
+    const isValid = invalidCount === 0 || (kanaCount > 0 && score > invalidCount * 10);
+    return { isValid, score: isValid ? score - invalidCount * 5 : 0 };
+  }
+
+  /**
+   * Big5 (繁体字中国語) のスコアリング
+   */
+  private static scoreBig5(buffer: Buffer): { isValid: boolean; score: number } {
+    let score = 0;
+    let invalidCount = 0;
+    let i = 0;
+    const len = buffer.length;
+
+    while (i < len) {
+      const b = buffer[i];
+
+      if (b <= 0x7F) {
+        i++;
+      } else if (b >= 0xA1 && b <= 0xF9) {
+        if (i + 1 < len) {
+          const b2 = buffer[i + 1];
+          if ((b2 >= 0x40 && b2 <= 0x7E) || (b2 >= 0xA1 && b2 <= 0xFE)) {
+            // Big5 常用字領域 (0xA440 - 0xC67E)
+            if (b >= 0xA4 && b <= 0xC6) {
+              score += 8;
+            } else {
+              score += 4;
+            }
+            i += 2;
+          } else {
+            invalidCount++;
+            i++;
+          }
+        } else {
+          invalidCount++;
+          i++;
+        }
+      } else {
         invalidCount++;
         i++;
       }
@@ -316,7 +421,7 @@ export class EncodingDetector {
   }
 
   /**
-   * GB18030 としてのスコアと妥当性を計算
+   * GB18030 (簡体字中国語) のスコアリング
    */
   private static scoreGb18030(buffer: Buffer): { isValid: boolean; score: number } {
     let score = 0;
@@ -334,14 +439,19 @@ export class EncodingDetector {
           const b2 = buffer[i + 1];
           if (b2 >= 0x40 && b2 <= 0xFE && b2 !== 0x7F) {
             // 2バイト GBK/GB18030
-            score += 2;
+            if (b >= 0xB0 && b <= 0xF7 && b2 >= 0xA1 && b2 <= 0xFE) {
+              // GBK 常用漢字領域
+              score += 8;
+            } else {
+              score += 3;
+            }
             i += 2;
           } else if (b2 >= 0x30 && b2 <= 0x39 && i + 3 < len) {
             const b3 = buffer[i + 2];
             const b4 = buffer[i + 3];
             if (b3 >= 0x81 && b3 <= 0xFE && b4 >= 0x30 && b4 <= 0x39) {
               // 4バイト GB18030
-              score += 3;
+              score += 4;
               i += 4;
             } else {
               invalidCount++;
