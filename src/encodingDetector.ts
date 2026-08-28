@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import { SupportedEncoding } from './types';
 
 /**
- * WHATWG Encoding 規格 (TextDecoder) に基づく堅牢な高精度文字コード自動判定エンジン
+ * 言語固有文字分布・出現頻度モデルに基づく文字コード自動判定エンジン
+ * EUC-JP, Shift_JIS, EUC-KR, UTF-8, Big5, GB18030, UTF-16 を厳密に識別
  */
 export class EncodingDetector {
   /** 判定結果のキャッシュ (ファイルパス -> エンコーディング) */
@@ -84,7 +85,7 @@ export class EncodingDetector {
       }
     }
 
-    // 3. ASCII のみかチェック (非ASCIIバイトが一切ない場合は UTF-8)
+    // 3. 全文字 ASCII かチェック
     let isAllAscii = true;
     for (let i = 0; i < len; i++) {
       if (buffer[i] > 0x7F) {
@@ -96,96 +97,215 @@ export class EncodingDetector {
       return 'utf-8';
     }
 
-    // 4. UTF-8 の厳密デコード検証 (BOMなしUTF-8の判定)
-    try {
-      const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
-      utf8Decoder.decode(buffer);
-      return 'utf-8';
-    } catch {
-      // UTF-8 ではない (レガシーエンコーディング)
-    }
-
-    // 5. 各レガシーエンコーディングでのデコード試行 & テキスト品質スコアリング
-    const candidateEncodings: SupportedEncoding[] = [
-      'euc-kr',
-      'euc-jp',
-      'shift_jis',
-      'big5',
-      'gb18030',
-      'windows-1252'
-    ];
-
-    const results: Array<{ encoding: SupportedEncoding; score: number }> = [];
-
-    for (const enc of candidateEncodings) {
-      try {
-        const decoder = new TextDecoder(enc, { fatal: false });
-        const text = decoder.decode(buffer);
-
-        let score = 0;
-
-        // 置換文字 (\uFFFD) は文字化けの決定打
-        const fffd = text.match(/\uFFFD/g);
-        if (fffd) {
-          score -= fffd.length * 100;
+    // 4. 厳密な UTF-8 妥当性検証
+    let isStrictUtf8 = true;
+    let utf8MultiByteCount = 0;
+    let idx = 0;
+    while (idx < len) {
+      const b = buffer[idx];
+      if (b <= 0x7F) {
+        idx++;
+      } else if ((b & 0xE0) === 0xC0) {
+        if (b < 0xC2 || idx + 1 >= len || (buffer[idx + 1] & 0xC0) !== 0x80) {
+          isStrictUtf8 = false;
+          break;
         }
-
-        // 不正制御文字
-        const control = text.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g);
-        if (control) {
-          score -= control.length * 50;
+        utf8MultiByteCount++;
+        idx += 2;
+      } else if ((b & 0xF0) === 0xE0) {
+        if (
+          idx + 2 >= len ||
+          (buffer[idx + 1] & 0xC0) !== 0x80 ||
+          (buffer[idx + 2] & 0xC0) !== 0x80 ||
+          (b === 0xE0 && buffer[idx + 1] < 0xA0) ||
+          (b === 0xED && buffer[idx + 1] >= 0xA0)
+        ) {
+          isStrictUtf8 = false;
+          break;
         }
-
-        // ハングル音節・字母 (\uAC00-\uD7AF, \u1100-\u11FF, \u3130-\u318F)
-        const hangul = text.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g);
-        if (hangul && hangul.length > 0) {
-          if (enc === 'euc-kr') {
-            score += 1000 + hangul.length * 20;
-          } else {
-            score -= 500;
-          }
+        utf8MultiByteCount++;
+        idx += 3;
+      } else if ((b & 0xF8) === 0xF0) {
+        if (
+          idx + 3 >= len ||
+          (buffer[idx + 1] & 0xC0) !== 0x80 ||
+          (buffer[idx + 2] & 0xC0) !== 0x80 ||
+          (buffer[idx + 3] & 0xC0) !== 0x80 ||
+          (b === 0xF0 && buffer[idx + 1] < 0x90) ||
+          (b === 0xF4 && buffer[idx + 1] > 0x8F)
+        ) {
+          isStrictUtf8 = false;
+          break;
         }
-
-        // 日本語ひらがな (\u3040-\u309F)
-        const hiragana = text.match(/[\u3040-\u309F]/g);
-        // 日本語カタカナ (\u30A0-\u30FF)
-        const katakana = text.match(/[\u30A0-\u30FF]/g);
-        const hasKana = (hiragana && hiragana.length > 0) || (katakana && katakana.length > 0);
-
-        if (hasKana) {
-          if (enc === 'euc-jp' || enc === 'shift_jis') {
-            score += 1000 + (hiragana ? hiragana.length * 20 : 0) + (katakana ? katakana.length * 10 : 0);
-          } else {
-            score -= 500;
-          }
-        }
-
-        // 半角カナ (\uFF61-\uFF9F) のみの文字化けペナルティ
-        // (ひらがな・カタカナ・ハングルが皆無で半角カナだけ ➔ 他のエンコーディングの誤デコードによる文字化け)
-        const halfKana = text.match(/[\uFF61-\uFF9F]/g);
-        if (halfKana && halfKana.length > 0) {
-          if (!hasKana && (!hangul || hangul.length === 0)) {
-            score -= 1000 + halfKana.length * 20;
-          }
-        }
-
-        // CJK 統合漢字 (\u4E00-\u9FAF, \u3400-\u4DBF)
-        const kanji = text.match(/[\u4E00-\u9FAF\u3400-\u4DBF]/g);
-        if (kanji) {
-          score += kanji.length * 5;
-        }
-
-        results.push({ encoding: enc, score });
-      } catch {
-        // デコード不能
+        utf8MultiByteCount++;
+        idx += 4;
+      } else {
+        isStrictUtf8 = false;
+        break;
       }
     }
 
-    // スコア順にソート
-    results.sort((a, b) => b.score - a.score);
+    if (isStrictUtf8 && utf8MultiByteCount > 0) {
+      return 'utf-8';
+    }
 
-    if (results.length > 0 && results[0].score > 0) {
-      return results[0].encoding;
+    // 5. 言語固有の特徴文字（頻度統計）の走査
+    let eucJpHiragana = 0;
+    let eucJpKatakana = 0;
+    let sjisHiragana = 0;
+    let sjisKatakana = 0;
+    let eucKrHangul = 0;
+    let big5AsciiTrail = 0;
+    let gb18030FourByte = 0;
+
+    // (A) EUC-JP / EUC-KR 走査 (0xA1..0xFE + 0xA1..0xFE)
+    idx = 0;
+    while (idx < len) {
+      const b = buffer[idx];
+      if (b <= 0x7F) {
+        idx++;
+      } else if (b >= 0xA1 && b <= 0xFE) {
+        if (idx + 1 < len) {
+          const b2 = buffer[idx + 1];
+          if (b2 >= 0xA1 && b2 <= 0xFE) {
+            // EUC-JP ひらがな (0xA4A1 - 0xA4F3) -> 日本語決定打
+            if (b === 0xA4 && b2 >= 0xA1 && b2 <= 0xF3) {
+              eucJpHiragana++;
+            }
+            // EUC-JP カタカナ (0xA5A1 - 0xA5F6) -> 日本語決定打
+            else if (b === 0xA5 && b2 >= 0xA1 && b2 <= 0xF6) {
+              eucJpKatakana++;
+            }
+            // EUC-KR ハングル完成型音節 (0xB0A1 - 0xC8FE: 가〜힣 2,350字)
+            else if (b >= 0xB0 && b <= 0xC8) {
+              eucKrHangul++;
+            }
+            idx += 2;
+          } else {
+            idx++;
+          }
+        } else {
+          idx++;
+        }
+      } else if (b === 0x8E) {
+        // EUC-JP 半角カナ (0x8E + 0xA1-0xDF)
+        if (idx + 1 < len && buffer[idx + 1] >= 0xA1 && buffer[idx + 1] <= 0xDF) {
+          eucJpKatakana++;
+          idx += 2;
+        } else {
+          idx++;
+        }
+      } else {
+        idx++;
+      }
+    }
+
+    // (B) Shift_JIS 走査 (0x81..0x9F / 0xE0..0xFC + 0x40..0xFC)
+    idx = 0;
+    while (idx < len) {
+      const b = buffer[idx];
+      if (b <= 0x7F) {
+        idx++;
+      } else if ((b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xFC)) {
+        if (idx + 1 < len) {
+          const b2 = buffer[idx + 1];
+          if ((b2 >= 0x40 && b2 <= 0x7E) || (b2 >= 0x80 && b2 <= 0xFC)) {
+            // SJIS ひらがな (0x829F - 0x82F1) -> 日本語決定打
+            if (b === 0x82 && b2 >= 0x9F && b2 <= 0xF1) {
+              sjisHiragana++;
+            }
+            // SJIS カタカナ (0x8340 - 0x8396) -> 日本語決定打
+            else if (b === 0x83 && b2 >= 0x40 && b2 <= 0x96) {
+              sjisKatakana++;
+            }
+            idx += 2;
+          } else {
+            idx++;
+          }
+        } else {
+          idx++;
+        }
+      } else {
+        idx++;
+      }
+    }
+
+    // (C) Big5 走査 (0xA1..0xF9 + 0x40..0x7E: Big5 固有の ASCII トレイルバイト)
+    idx = 0;
+    while (idx < len) {
+      const b = buffer[idx];
+      if (b <= 0x7F) {
+        idx++;
+      } else if (b >= 0xA1 && b <= 0xF9) {
+        if (idx + 1 < len) {
+          const b2 = buffer[idx + 1];
+          if (b2 >= 0x40 && b2 <= 0x7E) {
+            big5AsciiTrail++;
+            idx += 2;
+          } else if (b2 >= 0xA1 && b2 <= 0xFE) {
+            idx += 2;
+          } else {
+            idx++;
+          }
+        } else {
+          idx++;
+        }
+      } else {
+        idx++;
+      }
+    }
+
+    // (D) GB18030 4バイトシーケンス走査 (0x81..0xFE 0x30..0x39 0x81..0xFE 0x30..0x39)
+    idx = 0;
+    while (idx + 3 < len) {
+      const b1 = buffer[idx];
+      const b2 = buffer[idx + 1];
+      const b3 = buffer[idx + 2];
+      const b4 = buffer[idx + 3];
+      if (
+        b1 >= 0x81 && b1 <= 0xFE &&
+        b2 >= 0x30 && b2 <= 0x39 &&
+        b3 >= 0x81 && b3 <= 0xFE &&
+        b4 >= 0x30 && b4 <= 0x39
+      ) {
+        gb18030FourByte++;
+        idx += 4;
+      } else {
+        idx++;
+      }
+    }
+
+    // 6. 統計結果に基づく厳密な決定ルール
+
+    // (1) 日本語ひらがな・カタカナが存在する場合 (EUC-JP vs Shift_JIS)
+    const eucJpKanaTotal = eucJpHiragana * 2 + eucJpKatakana;
+    const sjisKanaTotal = sjisHiragana * 2 + sjisKatakana;
+
+    if (eucJpKanaTotal > 0 && eucJpKanaTotal >= sjisKanaTotal) {
+      return 'euc-jp';
+    }
+    if (sjisKanaTotal > 0 && sjisKanaTotal > eucJpKanaTotal) {
+      return 'shift_jis';
+    }
+
+    // (2) 韓国語ハングル完成型音節が存在し、日本語かな・Big5固有文字がない場合
+    if (eucKrHangul > 0 && eucJpKanaTotal === 0 && sjisKanaTotal === 0 && big5AsciiTrail === 0) {
+      return 'euc-kr';
+    }
+
+    // (3) Big5 固有の 2バイト目 (0x40-0x7E) が存在する場合
+    if (big5AsciiTrail > 0 && eucJpKanaTotal === 0 && sjisKanaTotal === 0) {
+      return 'big5';
+    }
+
+    // (4) GB18030 固有の 4バイト文字が存在する場合
+    if (gb18030FourByte > 0) {
+      return 'gb18030';
+    }
+
+    // (5) フォールバック: 残りのハングルがあれば EUC-KR
+    if (eucKrHangul > 0) {
+      return 'euc-kr';
     }
 
     return 'utf-8';
