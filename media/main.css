@@ -45,11 +45,11 @@ body {
   overflow: hidden;
 }
 
-/* 固定上部ヘッダー (検索入力・オプション・詳細条件・ステータス) */
+/* 固定上部ヘッダー (検索入力・詳細条件・ステータス) */
 .search-header {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
@@ -130,88 +130,49 @@ body {
   color: var(--vscode-inputOption-activeForeground, #ffffff);
 }
 
-/* 検索実行プライマリボタン */
-.primary-btn {
-  padding: 3px 8px;
-  background-color: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  border: none;
-  border-radius: 2px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.primary-btn:hover {
-  background-color: var(--vscode-button-hoverBackground);
-}
-
-.primary-btn:active {
-  opacity: 0.8;
-}
-
-/* オプション行 (自動判定バッジ & 詳細トグル) */
-.search-options-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: nowrap;
-  font-size: 11px;
-  padding: 0;
-  gap: 4px;
-}
-
-.auto-encoding-badge {
-  color: var(--vscode-descriptionForeground);
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  opacity: 0.85;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 詳細条件トグルボタン */
+/* 詳細条件三点リーダーボタン (...) */
 .details-toggle-btn {
-  background: transparent;
-  border: none;
-  color: var(--vscode-textLink-foreground);
-  cursor: pointer;
-  font-size: 11px;
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 3px;
-  border-radius: 2px;
-  white-space: nowrap;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--vscode-foreground);
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  font-family: sans-serif;
+  line-height: 1;
   flex-shrink: 0;
 }
 
 .details-toggle-btn:hover {
-  text-decoration: underline;
+  opacity: 1;
+  background-color: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
 }
 
-.codicon-arrow {
+.details-toggle-btn.active {
+  opacity: 1;
+  background-color: var(--vscode-toolbar-activeBackground, rgba(90, 93, 94, 0.5));
+  border-color: var(--vscode-focusBorder, #007acc);
+}
+
+.toggle-icon-dots {
   display: inline-block;
-  transition: transform 0.15s ease;
-  font-size: 10px;
-}
-
-.codicon-arrow.expanded {
-  transform: rotate(90deg);
+  letter-spacing: 1px;
+  font-weight: bold;
 }
 
 /* 詳細条件コンテナ (include/exclude) */
 .details-container {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 4px 6px;
-  background-color: var(--vscode-sideBarSectionHeader-background, rgba(255, 255, 255, 0.03));
-  border-radius: 3px;
-  border-left: 2px solid var(--vscode-focusBorder, #007acc);
+  gap: 6px;
+  padding: 2px 0 0 0;
 }
 
 .details-container.hidden {
@@ -221,7 +182,7 @@ body {
 .details-field {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .field-label {
@@ -229,18 +190,23 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 
-.details-input {
-  background-color: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border, transparent);
-  border-radius: 2px;
-  padding: 2px 5px;
-  font-size: 11px;
-  outline: none;
+.details-box {
+  width: 100%;
 }
 
-.details-input:focus {
-  border-color: var(--vscode-focusBorder);
+.details-input {
+  width: 100%;
+  padding: 3px 6px;
+  background: transparent;
+  color: var(--vscode-input-foreground);
+  border: none;
+  outline: none;
+  font-size: var(--vscode-font-size, 13px);
+  font-family: inherit;
+}
+
+.details-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
 }
 
 /* 状況メッセージ表示領域 */

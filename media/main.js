@@ -9,8 +9,10 @@
   // 多言語メッセージの取得
   // @ts-ignore
   const i18n = window.i18nStrings || {
-    searchBtn: '検索',
-    stopBtn: '停止',
+    searchPlaceholderBlur: '検索',
+    searchPlaceholderFocus: '検索 (履歴の⇅)',
+    filesToIncludePlaceholder: '例: *.ts, src/**',
+    filesToExcludePlaceholder: '例: node_modules/**, vendor/**',
     searching: '検索中...',
     noResults: '一致する結果は見つかりませんでした。',
     resultsTruncated: ' (上限10,000件に達したため一部のみ表示)',
@@ -19,13 +21,11 @@
 
   // DOM 要素の取得
   const searchInput = /** @type {HTMLInputElement} */ (document.getElementById('searchInput'));
-  const btnSearch = /** @type {HTMLButtonElement} */ (document.getElementById('btnSearch'));
   const btnCaseSensitive = /** @type {HTMLButtonElement} */ (document.getElementById('btnCaseSensitive'));
   const btnWordMatch = /** @type {HTMLButtonElement} */ (document.getElementById('btnWordMatch'));
   const btnRegex = /** @type {HTMLButtonElement} */ (document.getElementById('btnRegex'));
   const btnLineNumbers = /** @type {HTMLButtonElement} */ (document.getElementById('btnLineNumbers'));
   const btnToggleDetails = /** @type {HTMLButtonElement} */ (document.getElementById('btnToggleDetails'));
-  const detailsToggleIcon = /** @type {HTMLElement} */ (document.getElementById('detailsToggleIcon'));
   const detailsContainer = /** @type {HTMLElement} */ (document.getElementById('detailsContainer'));
   const includeInput = /** @type {HTMLInputElement} */ (document.getElementById('includeInput'));
   const excludeInput = /** @type {HTMLInputElement} */ (document.getElementById('excludeInput'));
@@ -33,20 +33,22 @@
   const resultsContainer = /** @type {HTMLElement} */ (document.getElementById('resultsContainer'));
 
   /**
-   * 入力履歴管理クラス (VS Code 標準ライクな上下キーナビゲーション)
+   * 入力履歴管理クラス (VS Code 標準ライクな上下キーナビゲーション & 自動検索連動)
    */
   class HistoryNavigator {
     /**
      * @param {HTMLInputElement} inputElement
      * @param {string[]} initialHistory
      * @param {() => void} onSaveState
+     * @param {((value: string) => void) | undefined} [onNavigate]
      */
-    constructor(inputElement, initialHistory, onSaveState) {
+    constructor(inputElement, initialHistory, onSaveState, onNavigate) {
       this.inputElement = inputElement;
       this.history = Array.isArray(initialHistory) ? initialHistory : [];
       this.historyIndex = -1;
       this.tempValue = '';
       this.onSaveState = onSaveState;
+      this.onNavigate = onNavigate;
 
       this.inputElement.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowUp') {
@@ -64,39 +66,51 @@
     }
 
     /**
+     * 上キーで過去の履歴へ移動
      * @param {KeyboardEvent} e
      */
     navigateUp(e) {
       if (this.history.length === 0) return;
+      e.preventDefault();
       if (this.historyIndex === -1) {
         this.tempValue = this.inputElement.value;
       }
       if (this.historyIndex < this.history.length - 1) {
         this.historyIndex++;
         this.inputElement.value = this.history[this.historyIndex];
-        e.preventDefault();
         this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+        if (this.onNavigate) {
+          this.onNavigate(this.inputElement.value);
+        }
       }
     }
 
     /**
+     * 下キーで新しい履歴へ移動
      * @param {KeyboardEvent} e
      */
     navigateDown(e) {
+      if (this.historyIndex === -1) return;
+      e.preventDefault();
       if (this.historyIndex > 0) {
         this.historyIndex--;
         this.inputElement.value = this.history[this.historyIndex];
-        e.preventDefault();
         this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+        if (this.onNavigate) {
+          this.onNavigate(this.inputElement.value);
+        }
       } else if (this.historyIndex === 0) {
         this.historyIndex = -1;
         this.inputElement.value = this.tempValue;
-        e.preventDefault();
         this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+        if (this.onNavigate) {
+          this.onNavigate(this.inputElement.value);
+        }
       }
     }
 
     /**
+     * 履歴に値を追加
      * @param {string} value
      */
     push(value) {
@@ -129,6 +143,10 @@
   let isWordMatch = false;
   let isRegex = false;
   let showLineNumbers = false;
+
+  // デバウンス検索タイマー
+  /** @type {NodeJS.Timeout | null} */
+  let debounceTimer = null;
 
   // 設定の適用 (カスタムプロパティを動的に上書き)
   /**
@@ -246,28 +264,52 @@
     });
   }
 
-  // 履歴ナビゲーターの初期化 (検索欄・含めるファイル欄・除外ファイル欄)
-  const searchHistoryNav = new HistoryNavigator(searchInput, previousState.searchHistory || [], saveState);
-  const includeHistoryNav = new HistoryNavigator(includeInput, previousState.includeHistory || [], saveState);
-  const excludeHistoryNav = new HistoryNavigator(excludeInput, previousState.excludeHistory || [], saveState);
+  // 履歴ナビゲーターの初期化 (上下キー連動自動検索)
+  const searchHistoryNav = new HistoryNavigator(
+    searchInput,
+    previousState.searchHistory || [],
+    saveState,
+    () => executeSearch(false)
+  );
+  const includeHistoryNav = new HistoryNavigator(
+    includeInput,
+    previousState.includeHistory || [],
+    saveState,
+    () => executeSearch(false)
+  );
+  const excludeHistoryNav = new HistoryNavigator(
+    excludeInput,
+    previousState.excludeHistory || [],
+    saveState,
+    () => executeSearch(false)
+  );
 
   // トグルボタンのイベントハンドラ
   btnCaseSensitive.addEventListener('click', () => {
     isCaseSensitive = !isCaseSensitive;
     btnCaseSensitive.classList.toggle('active', isCaseSensitive);
     saveState();
+    if (searchInput.value.trim()) {
+      executeSearch(false);
+    }
   });
 
   btnWordMatch.addEventListener('click', () => {
     isWordMatch = !isWordMatch;
     btnWordMatch.classList.toggle('active', isWordMatch);
     saveState();
+    if (searchInput.value.trim()) {
+      executeSearch(false);
+    }
   });
 
   btnRegex.addEventListener('click', () => {
     isRegex = !isRegex;
     btnRegex.classList.toggle('active', isRegex);
     saveState();
+    if (searchInput.value.trim()) {
+      executeSearch(false);
+    }
   });
 
   if (btnLineNumbers) {
@@ -283,36 +325,90 @@
     });
   }
 
-  // 詳細オプションの開閉
+  // 詳細オプションの開閉 (三点リーダーボタン)
   btnToggleDetails.addEventListener('click', () => {
     const isHidden = detailsContainer.classList.toggle('hidden');
-    detailsToggleIcon.classList.toggle('expanded', !isHidden);
+    btnToggleDetails.classList.toggle('active', !isHidden);
   });
 
-  // 検索実行・キャンセル
-  function triggerSearch() {
+  // placeholder の動的制御 (VS Code 標準準拠)
+  searchInput.addEventListener('focus', () => {
+    searchInput.placeholder = i18n.searchPlaceholderFocus || '検索 (履歴の⇅)';
+  });
+  searchInput.addEventListener('blur', () => {
+    searchInput.placeholder = i18n.searchPlaceholderBlur || '検索';
+  });
+
+  includeInput.addEventListener('focus', () => {
+    includeInput.placeholder = i18n.filesToIncludePlaceholder || '例: *.ts, src/**';
+  });
+  includeInput.addEventListener('blur', () => {
+    includeInput.placeholder = '';
+  });
+
+  excludeInput.addEventListener('focus', () => {
+    excludeInput.placeholder = i18n.filesToExcludePlaceholder || '例: node_modules/**, vendor/**';
+  });
+  excludeInput.addEventListener('blur', () => {
+    excludeInput.placeholder = '';
+  });
+
+  /**
+   * デバウンス付き検索スケジュール (文字入力後 500ms 経過で自動実行)
+   * @param {number} [delayMs=500]
+   */
+  function scheduleSearch(delayMs = 500) {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+
     const pattern = searchInput.value.trim();
     if (!pattern) {
-      // 空文字の場合は結果をクリア
+      if (isSearching) {
+        vscode.postMessage({ command: 'cancel' });
+      }
       clearResults();
       statusContainer.textContent = '';
       statusContainer.className = 'status-container';
       return;
     }
 
-    if (isSearching) {
-      // 検索中ならキャンセルを実行
-      vscode.postMessage({ command: 'cancel' });
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      executeSearch(true);
+    }, delayMs);
+  }
+
+  /**
+   * 検索実行処理
+   * @param {boolean} [addToHistory=true]
+   */
+  function executeSearch(addToHistory = true) {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+
+    const pattern = searchInput.value.trim();
+    if (!pattern) {
+      if (isSearching) {
+        vscode.postMessage({ command: 'cancel' });
+      }
+      clearResults();
+      statusContainer.textContent = '';
+      statusContainer.className = 'status-container';
       return;
     }
 
-    // 検索語・条件を履歴にプッシュ
-    searchHistoryNav.push(searchInput.value);
-    if (includeInput.value.trim()) {
-      includeHistoryNav.push(includeInput.value);
-    }
-    if (excludeInput.value.trim()) {
-      excludeHistoryNav.push(excludeInput.value);
+    if (addToHistory) {
+      searchHistoryNav.push(searchInput.value);
+      if (includeInput.value.trim()) {
+        includeHistoryNav.push(includeInput.value);
+      }
+      if (excludeInput.value.trim()) {
+        excludeHistoryNav.push(excludeInput.value);
+      }
     }
 
     saveState();
@@ -330,24 +426,27 @@
     });
   }
 
-  btnSearch.addEventListener('click', triggerSearch);
+  // 入力イベントで自動デバウンス検索
+  searchInput.addEventListener('input', () => scheduleSearch(500));
+  includeInput.addEventListener('input', () => scheduleSearch(500));
+  excludeInput.addEventListener('input', () => scheduleSearch(500));
 
-  // Enter キーで検索実行
+  // Enter キー押下時は即時検索実行
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      triggerSearch();
+      executeSearch(true);
     }
   });
 
   includeInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      triggerSearch();
+      executeSearch(true);
     }
   });
 
   excludeInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      triggerSearch();
+      executeSearch(true);
     }
   });
 
@@ -366,7 +465,7 @@
    */
   function formatMatchCountText(totalFiles, totalMatches, isTruncated) {
     let text = '';
-    const isJa = i18n.autoEncodingBadge && i18n.autoEncodingBadge.includes('自動');
+    const isJa = i18n.searchPlaceholderBlur && i18n.searchPlaceholderBlur.includes('検索');
     if (isJa) {
       text = `${totalFiles} 個のファイルで ${totalMatches} 件の一致`;
     } else {
@@ -389,8 +488,6 @@
 
       case 'searchStart':
         isSearching = true;
-        btnSearch.textContent = i18n.stopBtn;
-        btnSearch.style.backgroundColor = 'var(--vscode-errorForeground, #d9534f)';
         statusContainer.className = 'status-container';
         statusContainer.innerHTML = `<span class="spinner"></span> <span>${i18n.searching}</span>`;
         clearResults();
@@ -407,8 +504,6 @@
 
       case 'searchComplete':
         isSearching = false;
-        btnSearch.textContent = i18n.searchBtn;
-        btnSearch.style.backgroundColor = '';
         if (message.totalMatches === 0) {
           statusContainer.className = 'status-container';
           statusContainer.textContent = i18n.noResults;
@@ -421,16 +516,12 @@
 
       case 'searchCancelled':
         isSearching = false;
-        btnSearch.textContent = i18n.searchBtn;
-        btnSearch.style.backgroundColor = '';
         statusContainer.className = 'status-container';
         statusContainer.textContent = i18n.searchCancelled;
         break;
 
       case 'searchError':
         isSearching = false;
-        btnSearch.textContent = i18n.searchBtn;
-        btnSearch.style.backgroundColor = '';
         statusContainer.className = 'status-container error';
         statusContainer.textContent = `${message.errorMessage}`;
         break;

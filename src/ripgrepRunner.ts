@@ -2,6 +2,7 @@ import * as childProcess from 'child_process';
 import * as readline from 'readline';
 import * as path from 'path';
 import { SearchOptions, FileSearchResult, SearchMatch, SupportedEncoding, Submatch } from './types';
+import { EncodingDetector } from './encodingDetector';
 
 /** 検索結果の最大表示件数 */
 const MAX_MATCH_LIMIT = 10000;
@@ -340,27 +341,34 @@ export class RipgrepRunner {
       const fileName = parsedPath.base;
       const dirPath = parsedPath.dir === '.' ? '' : parsedPath.dir;
 
+      // ファイル全体の文字コードを実ファイルから直接正確に判定
+      const detectedFileEncoding = EncodingDetector.detect(filePath);
+
       fileResult = {
         filePath,
         relativePath,
         fileName,
         dirPath,
         matches: [],
-        primaryEncoding: encoding,
+        primaryEncoding: detectedFileEncoding,
         lineMap: new Map<number, SearchMatchInternal>()
       };
       fileResultMap.set(filePath, fileResult);
     }
 
     // 行テキストの品質スコアを算出 (文字化けの有無、日本語の正確さ)
-    const qualityScore = this.calculateQualityScore(cleanLineText);
+    // ファイル自体の文字コードと一致する ripgrep 出力にはボーナスを付与
+    let qualityScore = this.calculateQualityScore(cleanLineText);
+    if (encoding === fileResult.primaryEncoding) {
+      qualityScore += 200;
+    }
 
     const newMatchInternal: SearchMatchInternal = {
       lineNumber,
       columnNumber,
       lineText: cleanLineText,
       submatches: convertedSubmatches,
-      encoding,
+      encoding: fileResult.primaryEncoding || encoding,
       qualityScore
     };
 
@@ -374,11 +382,8 @@ export class RipgrepRunner {
         existingMatch.lineText = cleanLineText;
         existingMatch.submatches = convertedSubmatches;
         existingMatch.columnNumber = columnNumber;
-        existingMatch.encoding = encoding;
+        existingMatch.encoding = fileResult.primaryEncoding || encoding;
         existingMatch.qualityScore = qualityScore;
-
-        // ファイル全体のプライマリエンコーディングも再評価
-        this.updateFilePrimaryEncoding(fileResult);
         return false;
       } else if (qualityScore === existingMatch.qualityScore) {
         // スコアが同じ場合: 追加のサブマッチがあればマージ
@@ -401,41 +406,7 @@ export class RipgrepRunner {
     fileResult.lineMap.set(lineNumber, newMatchInternal);
     fileResult.matches.push(newMatchInternal);
 
-    // ファイル全体のプライマリエンコーディングを更新
-    this.updateFilePrimaryEncoding(fileResult);
-
     return true;
-  }
-
-  /**
-   * ファイル内の各マッチ行の品質と文字コードから、ファイル全体のプライマリエンコーディングを更新する
-   */
-  private updateFilePrimaryEncoding(fileResult: FileSearchResultInternal): void {
-    const encodingScores = new Map<SupportedEncoding, { count: number; totalScore: number }>();
-
-    for (const match of fileResult.matches) {
-      const internalMatch = match as SearchMatchInternal;
-      const stat = encodingScores.get(match.encoding) || { count: 0, totalScore: 0 };
-      stat.count++;
-      stat.totalScore += internalMatch.qualityScore || 0;
-      encodingScores.set(match.encoding, stat);
-    }
-
-    let bestEncoding: SupportedEncoding = fileResult.primaryEncoding || 'utf-8';
-    let maxScore = -Infinity;
-    let maxCount = 0;
-
-    for (const [enc, stat] of encodingScores.entries()) {
-      // 平均スコアと件数から最適な文字コードを選択
-      const avgScore = stat.totalScore / stat.count;
-      if (avgScore > maxScore || (avgScore === maxScore && stat.count > maxCount)) {
-        maxScore = avgScore;
-        maxCount = stat.count;
-        bestEncoding = enc;
-      }
-    }
-
-    fileResult.primaryEncoding = bestEncoding;
   }
 
   /**

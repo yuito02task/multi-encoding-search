@@ -542,22 +542,15 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     };
 
     return {
-      searchPlaceholder: translate('Search (EUC-JP / UTF-8 / SJIS Auto)', '検索 (EUC-JP / UTF-8 / SJIS 自動)'),
+      searchPlaceholderBlur: translate('Search', '検索'),
+      searchPlaceholderFocus: translate('Search (⇅ for history)', '検索 (履歴の⇅)'),
       matchCase: translate('Match Case', '大文字/小文字を区別 (Match Case)'),
       matchWholeWord: translate('Match Whole Word', '単語全体に一致 (Match Whole Word)'),
       useRegularExpression: translate('Use Regular Expression', '正規表現を使用 (Use Regular Expression)'),
       toggleLineNumbers: translate('Toggle Line Numbers', '行番号の表示/非表示 (Toggle Line Numbers)'),
-      searchBtn: translate('Search', '検索'),
-      stopBtn: translate('Stop', '停止'),
-      autoEncodingBadge: translate('⚡ Auto Encoding', '⚡ 文字コード自動判定'),
-      autoEncodingBadgeTitle: translate(
-        'Searches EUC-JP, UTF-8, and Shift_JIS automatically in parallel',
-        'EUC-JP、UTF-8、Shift_JIS を同時に自動並行検索します'
-      ),
-      detailsToggle: translate('Details', '詳細条件'),
-      detailsToggleTitle: translate('Toggle search details', '詳細検索オプションの表示切り替え'),
+      detailsToggleTitle: translate('Toggle Search Details', '詳細検索オプションの表示切り替え'),
       filesToInclude: translate('files to include', '含めるファイル'),
-      filesToIncludePlaceholder: translate('e.g. *.php, src/**', '例: *.php, src/**'),
+      filesToIncludePlaceholder: translate('e.g. *.ts, src/**', '例: *.ts, src/**'),
       filesToExclude: translate('files to exclude', '除外するファイル'),
       filesToExcludePlaceholder: translate('e.g. node_modules/**, vendor/**', '例: node_modules/**, vendor/**'),
       searching: translate('Searching...', '検索中...'),
@@ -594,12 +587,12 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div class="search-container">
-    <!-- 固定上部ヘッダー領域 (検索入力・オプション・詳細・ステータス) -->
+    <!-- 固定上部ヘッダー領域 (検索入力・詳細・ステータス) -->
     <div class="search-header">
       <!-- 検索入力行 -->
       <div class="search-input-wrapper">
         <div class="input-box-container">
-          <input type="text" id="searchInput" class="search-input" placeholder="${i18n.searchPlaceholder}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <input type="text" id="searchInput" class="search-input" placeholder="${i18n.searchPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
           <div class="input-actions">
             <button id="btnCaseSensitive" class="icon-toggle-btn" title="${i18n.matchCase}">
               <span class="toggle-icon">Aa</span>
@@ -615,26 +608,24 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
             </button>
           </div>
         </div>
-        <button id="btnSearch" class="primary-btn" title="${i18n.searchBtn} (Enter)">${i18n.searchBtn}</button>
-      </div>
-
-      <!-- オプション行 (自動判定バッジ & 詳細トグル) -->
-      <div class="search-options-row">
-        <span class="auto-encoding-badge" title="${i18n.autoEncodingBadgeTitle}">${i18n.autoEncodingBadge}</span>
         <button id="btnToggleDetails" class="details-toggle-btn" title="${i18n.detailsToggleTitle}">
-          <span id="detailsToggleIcon" class="codicon-arrow">▸</span> ${i18n.detailsToggle}
+          <span class="toggle-icon-dots">…</span>
         </button>
       </div>
 
       <!-- 詳細条件 (include / exclude) -->
       <div id="detailsContainer" class="details-container hidden">
         <div class="details-field">
-          <label for="includeInput" class="field-label">${i18n.filesToInclude}:</label>
-          <input type="text" id="includeInput" class="details-input" placeholder="${i18n.filesToIncludePlaceholder}" />
+          <label for="includeInput" class="field-label">${i18n.filesToInclude}</label>
+          <div class="input-box-container details-box">
+            <input type="text" id="includeInput" class="details-input" placeholder="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          </div>
         </div>
         <div class="details-field">
-          <label for="excludeInput" class="field-label">${i18n.filesToExclude}:</label>
-          <input type="text" id="excludeInput" class="details-input" placeholder="${i18n.filesToExcludePlaceholder}" />
+          <label for="excludeInput" class="field-label">${i18n.filesToExclude}</label>
+          <div class="input-box-container details-box">
+            <input type="text" id="excludeInput" class="details-input" placeholder="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          </div>
         </div>
       </div>
 
