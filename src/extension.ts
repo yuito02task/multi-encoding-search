@@ -7,7 +7,7 @@ import { EucjpSearchViewProvider } from './searchViewProvider';
  */
 export function activate(context: vscode.ExtensionContext): void {
   // WebviewView プロバイダーのインスタンスを作成
-  const provider = new EucjpSearchViewProvider(context.extensionUri);
+  const provider = new EucjpSearchViewProvider(context.extensionUri, context);
 
   // サイドバーの WebviewView としてプロバイダーを登録
   const providerDisposable = vscode.window.registerWebviewViewProvider(

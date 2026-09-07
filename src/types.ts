@@ -31,6 +31,12 @@ export interface SearchOptions {
   includePattern?: string;
   /** 検索対象から除外するファイルパターン (glob) */
   excludePattern?: string;
+  /** 開いているエディターでのみ検索するかどうか */
+  onlyOpenEditors?: boolean;
+  /** 開いているエディターのファイルパス一覧 (onlyOpenEditors が true の場合) */
+  openEditorPaths?: string[];
+  /** 除外設定・無視ファイル (.gitignore 等) を使用するかどうか (デフォルト: true) */
+  useIgnoreFiles?: boolean;
   /** 検索対象の文字コード一覧 */
   targetEncodings?: SupportedEncoding[];
 }
@@ -110,7 +116,8 @@ export type WebviewMessage =
   | { command: 'search'; options: SearchOptions }
   | { command: 'cancel' }
   | { command: 'openFile'; filePath: string; line: number; column: number; length: number; encoding: SupportedEncoding; matchText?: string }
-  | { command: 'requestSettings' };
+  | { command: 'requestSettings' }
+  | { command: 'saveHistory'; searchHistory: string[]; includeHistory: string[]; excludeHistory: string[] };
 
 /**
  * 拡張機能ホストから Webview へ送信されるメッセージの型定義

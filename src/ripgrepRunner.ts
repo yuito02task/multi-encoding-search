@@ -67,6 +67,12 @@ export class RipgrepRunner {
 
     this.isCancelledByUser = false;
 
+    // 開いているエディターのみ検索で、開いているファイルが0件の場合は即座に空結果を返して終了
+    if (options.onlyOpenEditors && (!options.openEditorPaths || options.openEditorPaths.length === 0)) {
+      onComplete(0, 0, false);
+      return;
+    }
+
     // 検索対象の文字コード一覧 (指定がなければデフォルトの日本語主要3文字コード)
     const encodingsToSearch: SupportedEncoding[] =
       options.targetEncodings && options.targetEncodings.length > 0
@@ -437,7 +443,7 @@ export class RipgrepRunner {
       });
     }
 
-    // ファイル同士を「ディレクトリ階層順 ＞ 拡張子順 ＞ ファイル名順」でソート
+    // ファイル同士を「ディレクトリ階層順 ＞ ファイル名自然順」でソート (VS Code 標準準拠)
     results.sort((a, b) => {
       // 1. ディレクトリパスの比較
       if (a.dirPath !== b.dirPath) {
@@ -447,17 +453,7 @@ export class RipgrepRunner {
         }
       }
 
-      // 2. ディレクトリが同一ならファイル拡張子で比較
-      const extA = path.extname(a.fileName).toLowerCase();
-      const extB = path.extname(b.fileName).toLowerCase();
-      if (extA !== extB) {
-        const extCompare = extA.localeCompare(extB, undefined, { numeric: true, sensitivity: 'base' });
-        if (extCompare !== 0) {
-          return extCompare;
-        }
-      }
-
-      // 3. 拡張子も同一ならファイル名で比較
+      // 2. ディレクトリが同一ならファイル名で比較 (自然順・大文字小文字同一視)
       return a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: 'base' });
     });
 
@@ -496,6 +492,11 @@ export class RipgrepRunner {
       encoding
     ];
 
+    // 複数行検索 (パターンに改行が含まれる場合は ripgrep に --multiline を渡す)
+    if (options.pattern.includes('\n') || options.pattern.includes('\r')) {
+      args.push('--multiline');
+    }
+
     // 正規表現 or 固定文字列
     if (options.isRegexp) {
       // 正規表現モード
@@ -513,6 +514,11 @@ export class RipgrepRunner {
     // 単語単位
     if (options.isWordMatch) {
       args.push('--word-regexp');
+    }
+
+    // 除外設定を使用してファイルを無視 (useIgnoreFiles: デフォルト true。false の場合は無視設定を解除)
+    if (options.useIgnoreFiles === false) {
+      args.push('--no-ignore', '--hidden');
     }
 
     // Files to include (glob)
@@ -537,9 +543,15 @@ export class RipgrepRunner {
     // 検索パターン文字列
     args.push(options.pattern);
 
-    // 検索対象のワークスペースフォルダ
-    for (const folder of workspaceFolders) {
-      args.push(folder);
+    // 検索対象のパス (開いているエディターのみの場合は対象ファイルパス、通常のときはワークスペースフォルダ)
+    if (options.onlyOpenEditors && options.openEditorPaths && options.openEditorPaths.length > 0) {
+      for (const filePath of options.openEditorPaths) {
+        args.push(filePath);
+      }
+    } else {
+      for (const folder of workspaceFolders) {
+        args.push(folder);
+      }
     }
 
     return args;

@@ -20,7 +20,7 @@
   };
 
   // DOM 要素の取得
-  const searchInput = /** @type {HTMLInputElement} */ (document.getElementById('searchInput'));
+  const searchInput = /** @type {HTMLTextAreaElement} */ (document.getElementById('searchInput'));
   const btnCaseSensitive = /** @type {HTMLButtonElement} */ (document.getElementById('btnCaseSensitive'));
   const btnWordMatch = /** @type {HTMLButtonElement} */ (document.getElementById('btnWordMatch'));
   const btnRegex = /** @type {HTMLButtonElement} */ (document.getElementById('btnRegex'));
@@ -29,15 +29,33 @@
   const detailsContainer = /** @type {HTMLElement} */ (document.getElementById('detailsContainer'));
   const includeInput = /** @type {HTMLInputElement} */ (document.getElementById('includeInput'));
   const excludeInput = /** @type {HTMLInputElement} */ (document.getElementById('excludeInput'));
+  const btnSearchOnlyOpenEditors = /** @type {HTMLButtonElement | null} */ (document.getElementById('btnSearchOnlyOpenEditors'));
+  const btnUseExcludeSettings = /** @type {HTMLButtonElement | null} */ (document.getElementById('btnUseExcludeSettings'));
   const statusContainer = /** @type {HTMLElement} */ (document.getElementById('statusContainer'));
   const resultsContainer = /** @type {HTMLElement} */ (document.getElementById('resultsContainer'));
+
+  /**
+   * 検索入力 textarea の高さを内容に応じて自動調整する (auto-grow)
+   */
+  function adjustSearchInputHeight() {
+    searchInput.style.height = 'auto';
+    const scrollHeight = searchInput.scrollHeight;
+    const maxHeight = 134; // 最大約6〜7行分
+    if (scrollHeight > maxHeight) {
+      searchInput.style.height = `${maxHeight}px`;
+      searchInput.style.overflowY = 'auto';
+    } else {
+      searchInput.style.height = `${Math.max(24, scrollHeight)}px`;
+      searchInput.style.overflowY = 'hidden';
+    }
+  }
 
   /**
    * 入力履歴管理クラス (VS Code 標準ライクな上下キーナビゲーション & 自動検索連動)
    */
   class HistoryNavigator {
     /**
-     * @param {HTMLInputElement} inputElement
+     * @param {HTMLInputElement | HTMLTextAreaElement} inputElement
      * @param {string[]} initialHistory
      * @param {() => void} onSaveState
      * @param {((value: string) => void) | undefined} [onNavigate]
@@ -51,10 +69,13 @@
       this.onNavigate = onNavigate;
 
       this.inputElement.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowUp') {
-          this.navigateUp(e);
-        } else if (e.key === 'ArrowDown') {
-          this.navigateDown(e);
+        // Shift, Ctrl, Alt が押されていない単独の上下キーで履歴遷移
+        if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          if (e.key === 'ArrowUp') {
+            this.navigateUp(e);
+          } else if (e.key === 'ArrowDown') {
+            this.navigateDown(e);
+          }
         }
       });
 
@@ -62,7 +83,21 @@
         if (this.historyIndex === -1) {
           this.tempValue = this.inputElement.value;
         }
+        if (this.inputElement === searchInput) {
+          adjustSearchInputHeight();
+        }
       });
+    }
+
+    /**
+     * カーソルをテキスト末尾に移動し、必要なら高さを再計算
+     */
+    setCursorToEnd() {
+      const len = this.inputElement.value.length;
+      this.inputElement.setSelectionRange(len, len);
+      if (this.inputElement === searchInput) {
+        adjustSearchInputHeight();
+      }
     }
 
     /**
@@ -78,7 +113,7 @@
       if (this.historyIndex < this.history.length - 1) {
         this.historyIndex++;
         this.inputElement.value = this.history[this.historyIndex];
-        this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+        this.setCursorToEnd();
         if (this.onNavigate) {
           this.onNavigate(this.inputElement.value);
         }
@@ -87,6 +122,7 @@
 
     /**
      * 下キーで新しい履歴へ移動
+     * VS Code 標準準拠: 最新の履歴からさらに下を押すと空欄 (未入力状態) に戻る
      * @param {KeyboardEvent} e
      */
     navigateDown(e) {
@@ -95,16 +131,17 @@
       if (this.historyIndex > 0) {
         this.historyIndex--;
         this.inputElement.value = this.history[this.historyIndex];
-        this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+        this.setCursorToEnd();
         if (this.onNavigate) {
           this.onNavigate(this.inputElement.value);
         }
       } else if (this.historyIndex === 0) {
+        // 最新履歴からさらに下を押した場合は確実に空欄に戻す
         this.historyIndex = -1;
-        this.inputElement.value = this.tempValue;
-        this.inputElement.setSelectionRange(this.inputElement.value.length, this.inputElement.value.length);
+        this.inputElement.value = '';
+        this.setCursorToEnd();
         if (this.onNavigate) {
-          this.onNavigate(this.inputElement.value);
+          this.onNavigate('');
         }
       }
     }
@@ -216,8 +253,12 @@
 
   // 永続化ステートの復元
   const previousState = vscode.getState() || {};
+  // @ts-ignore
+  const initialHistory = window.initialHistory || {};
+
   if (previousState.pattern) {
     searchInput.value = previousState.pattern;
+    setTimeout(adjustSearchInputHeight, 0);
   }
   if (previousState.isCaseSensitive) {
     isCaseSensitive = true;
@@ -248,8 +289,23 @@
     excludeInput.value = previousState.excludePattern;
   }
 
-  // 状態の保存
+  // 新規トグルオプション: 開いているエディターでのみ検索 / 除外設定を使用してファイルを無視
+  let onlyOpenEditors = !!previousState.onlyOpenEditors;
+  if (onlyOpenEditors && btnSearchOnlyOpenEditors) {
+    btnSearchOnlyOpenEditors.classList.add('active');
+  }
+
+  let useExcludeSettings = previousState.useExcludeSettings !== undefined ? !!previousState.useExcludeSettings : true;
+  if (btnUseExcludeSettings) {
+    btnUseExcludeSettings.classList.toggle('active', useExcludeSettings);
+  }
+
+  // 状態の保存 (Webview ステートおよび VS Code 本体の globalState 永続化)
   function saveState() {
+    const searchHist = searchHistoryNav.getHistory();
+    const includeHist = includeHistoryNav.getHistory();
+    const excludeHist = excludeHistoryNav.getHistory();
+
     vscode.setState({
       pattern: searchInput.value,
       isCaseSensitive,
@@ -258,30 +314,46 @@
       showLineNumbers,
       includePattern: includeInput.value,
       excludePattern: excludeInput.value,
-      searchHistory: searchHistoryNav.getHistory(),
-      includeHistory: includeHistoryNav.getHistory(),
-      excludeHistory: excludeHistoryNav.getHistory()
+      onlyOpenEditors,
+      useExcludeSettings,
+      searchHistory: searchHist,
+      includeHistory: includeHist,
+      excludeHistory: excludeHist
+    });
+
+    // VS Code 本体 (globalState) へ日をまたいだ履歴永続化メッセージを送信
+    vscode.postMessage({
+      command: 'saveHistory',
+      searchHistory: searchHist,
+      includeHistory: includeHist,
+      excludeHistory: excludeHist
     });
   }
 
-  // 履歴ナビゲーターの初期化 (上下キー連動自動検索)
+  // 履歴ナビゲーターの初期化 (上下キー移動時はデバウンス検索連動で素早いキー入力時も快適)
   const searchHistoryNav = new HistoryNavigator(
     searchInput,
-    previousState.searchHistory || [],
+    previousState.searchHistory && previousState.searchHistory.length > 0
+      ? previousState.searchHistory
+      : (initialHistory.searchHistory || []),
     saveState,
-    () => executeSearch(false)
+    () => scheduleSearch(500)
   );
   const includeHistoryNav = new HistoryNavigator(
     includeInput,
-    previousState.includeHistory || [],
+    previousState.includeHistory && previousState.includeHistory.length > 0
+      ? previousState.includeHistory
+      : (initialHistory.includeHistory || []),
     saveState,
-    () => executeSearch(false)
+    () => scheduleSearch(500)
   );
   const excludeHistoryNav = new HistoryNavigator(
     excludeInput,
-    previousState.excludeHistory || [],
+    previousState.excludeHistory && previousState.excludeHistory.length > 0
+      ? previousState.excludeHistory
+      : (initialHistory.excludeHistory || []),
     saveState,
-    () => executeSearch(false)
+    () => scheduleSearch(500)
   );
 
   // トグルボタンのイベントハンドラ
@@ -322,6 +394,30 @@
         document.body.classList.add('hide-line-numbers');
       }
       saveState();
+    });
+  }
+
+  // 「開いているエディターでのみ検索」ボタン
+  if (btnSearchOnlyOpenEditors) {
+    btnSearchOnlyOpenEditors.addEventListener('click', () => {
+      onlyOpenEditors = !onlyOpenEditors;
+      btnSearchOnlyOpenEditors.classList.toggle('active', onlyOpenEditors);
+      saveState();
+      if (searchInput.value.trim()) {
+        executeSearch(false);
+      }
+    });
+  }
+
+  // 「除外設定を使用してファイルを無視」ボタン
+  if (btnUseExcludeSettings) {
+    btnUseExcludeSettings.addEventListener('click', () => {
+      useExcludeSettings = !useExcludeSettings;
+      btnUseExcludeSettings.classList.toggle('active', useExcludeSettings);
+      saveState();
+      if (searchInput.value.trim()) {
+        executeSearch(false);
+      }
     });
   }
 
@@ -416,25 +512,44 @@
     vscode.postMessage({
       command: 'search',
       options: {
-        pattern,
+        pattern: searchInput.value, // 改行を保持した完全な検索文字列
         isCaseSensitive,
         isWordMatch,
         isRegexp: isRegex,
         includePattern: includeInput.value.trim() || undefined,
-        excludePattern: excludeInput.value.trim() || undefined
+        excludePattern: excludeInput.value.trim() || undefined,
+        onlyOpenEditors,
+        useIgnoreFiles: useExcludeSettings
       }
     });
   }
 
-  // 入力イベントで自動デバウンス検索
-  searchInput.addEventListener('input', () => scheduleSearch(500));
+  // 入力イベントで自動デバウンス検索 & 高さ自動調整
+  searchInput.addEventListener('input', () => {
+    adjustSearchInputHeight();
+    scheduleSearch(500);
+  });
+  searchInput.addEventListener('paste', () => {
+    setTimeout(adjustSearchInputHeight, 0);
+  });
+
   includeInput.addEventListener('input', () => scheduleSearch(500));
   excludeInput.addEventListener('input', () => scheduleSearch(500));
 
-  // Enter キー押下時は即時検索実行
+  // Enter キー押下時の挙動 (VS Code 標準準拠: Shift+Enter で改行、Enter 単体で即時検索)
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      executeSearch(true);
+      if (e.shiftKey) {
+        // Shift + Enter: 改行を挿入して高さを調整
+        setTimeout(() => {
+          adjustSearchInputHeight();
+          scheduleSearch(500);
+        }, 0);
+      } else {
+        // 通常の Enter: 改行を防ぎ、即時検索実行
+        e.preventDefault();
+        executeSearch(true);
+      }
     }
   });
 
@@ -454,6 +569,7 @@
   function clearResults() {
     resultsContainer.innerHTML = '';
     fileDomMap.clear();
+    selectedItem = null;
   }
 
   /**
@@ -595,6 +711,118 @@
     return enc ? enc.toUpperCase() : 'UTF-8';
   }
 
+  // 現在選択中の結果アイテム (マッチ行またはファイルヘッダー)
+  /** @type {HTMLElement | null} */
+  let selectedItem = null;
+
+  /**
+   * アイテムを選択状態にする
+   * @param {HTMLElement | null} element
+   * @param {boolean} [shouldFocus=true]
+   */
+  function selectItem(element, shouldFocus = true) {
+    if (selectedItem && selectedItem !== element) {
+      selectedItem.classList.remove('selected');
+    }
+    selectedItem = element;
+    if (selectedItem) {
+      selectedItem.classList.add('selected');
+      if (shouldFocus) {
+        selectedItem.focus();
+      }
+      selectedItem.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  /**
+   * 現在画面上に表示されている（折りたたまれていない）全アイテムを取得
+   * @returns {HTMLElement[]}
+   */
+  function getVisibleItems() {
+    /** @type {HTMLElement[]} */
+    const items = [];
+    const fileGroups = resultsContainer.querySelectorAll('.file-group');
+    for (const group of fileGroups) {
+      const header = /** @type {HTMLElement | null} */ (group.querySelector('.file-header'));
+      if (header) items.push(header);
+      const matchList = group.querySelector('.match-list');
+      if (matchList && !matchList.classList.contains('hidden')) {
+        const matchItems = matchList.querySelectorAll('.match-item');
+        for (const m of matchItems) {
+          items.push(/** @type {HTMLElement} */ (m));
+        }
+      }
+    }
+    return items;
+  }
+
+  /**
+   * 結果一覧コンテナでのキーボード操作 (上下キー移動・Enterで開く・左右キー開閉)
+   */
+  resultsContainer.addEventListener('keydown', (e) => {
+    const items = getVisibleItems();
+    if (items.length === 0) return;
+
+    const currentIndex = selectedItem ? items.indexOf(selectedItem) : -1;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (currentIndex === -1 || currentIndex >= items.length - 1) {
+        selectItem(items[0]);
+      } else {
+        selectItem(items[currentIndex + 1]);
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (currentIndex > 0) {
+        selectItem(items[currentIndex - 1]);
+      } else if (currentIndex === 0) {
+        // 先頭で上キーを押した場合は検索入力欄へフォーカス移動 (VS Code 標準導線)
+        searchInput.focus();
+        searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+      }
+    } else if (e.key === 'Enter') {
+      if (selectedItem) {
+        e.preventDefault();
+        selectedItem.click();
+      }
+    } else if (e.key === 'ArrowRight') {
+      // ファイルヘッダーを展開
+      if (selectedItem && selectedItem.classList.contains('file-header')) {
+        const group = selectedItem.closest('.file-group');
+        const matchList = group?.querySelector('.match-list');
+        const toggleIcon = selectedItem.querySelector('.file-toggle-icon');
+        if (matchList && matchList.classList.contains('hidden')) {
+          matchList.classList.remove('hidden');
+          toggleIcon?.classList.add('expanded');
+          e.preventDefault();
+        }
+      }
+    } else if (e.key === 'ArrowLeft') {
+      if (selectedItem) {
+        if (selectedItem.classList.contains('file-header')) {
+          // ファイルヘッダーを折りたたみ
+          const group = selectedItem.closest('.file-group');
+          const matchList = group?.querySelector('.match-list');
+          const toggleIcon = selectedItem.querySelector('.file-toggle-icon');
+          if (matchList && !matchList.classList.contains('hidden')) {
+            matchList.classList.add('hidden');
+            toggleIcon?.classList.remove('expanded');
+            e.preventDefault();
+          }
+        } else if (selectedItem.classList.contains('match-item')) {
+          // マッチ行なら親のファイルヘッダーへ移動
+          const group = selectedItem.closest('.file-group');
+          const header = /** @type {HTMLElement | null} */ (group?.querySelector('.file-header'));
+          if (header) {
+            selectItem(header);
+            e.preventDefault();
+          }
+        }
+      }
+    }
+  });
+
   /**
    * 単一のマッチアイテムDOM要素を生成する
    * @param {any} file
@@ -604,6 +832,7 @@
   function createMatchItemElement(file, match) {
     const matchItem = document.createElement('div');
     matchItem.className = 'match-item';
+    matchItem.tabIndex = 0;
     matchItem.title = `${file.relativePath}:${match.lineNumber}:${match.columnNumber} [${formatEncodingName(match.encoding)}]`;
 
     const posSpan = document.createElement('span');
@@ -617,9 +846,11 @@
     matchItem.appendChild(posSpan);
     matchItem.appendChild(previewSpan);
 
-    // クリックでファイルを開いて文字コード自動適用＆ジャンプ
+    // クリックで選択状態にし、ファイルを開いて文字コード自動適用＆ジャンプ
     matchItem.addEventListener('click', (e) => {
       e.stopPropagation();
+      selectItem(matchItem, false);
+
       const firstSub = match.submatches && match.submatches[0];
       const matchLength = firstSub ? firstSub.end - firstSub.start : 1;
       const matchText = firstSub ? firstSub.matchText : '';
@@ -639,13 +870,12 @@
   }
 
   /**
-   * 検索結果のインクリメンタル（差分）レンダリング
-   * 高速化のため、新規要素のみを DOM に追記し、既存行の文字コード改善時はピンポイント更新を行う
+   * 検索結果のインクリメンタル（差分）レンダリング & DOMソート順の厳密同期
+   * 高速化のため、新規要素のみを作成し、既存行の文字コード改善時はピンポイント更新を行う。
+   * さらに渡されたソート済み配列 (fileResults) の順序に合わせて DOM 要素を正しく再整列する。
    * @param {Array<any>} fileResults
    */
   function renderIncrementalResults(fileResults) {
-    const fragment = document.createDocumentFragment();
-
     for (const file of fileResults) {
       let fileDom = fileDomMap.get(file.filePath);
 
@@ -656,6 +886,7 @@
 
         const fileHeader = document.createElement('div');
         fileHeader.className = 'file-header';
+        fileHeader.tabIndex = 0;
         fileHeader.title = file.filePath;
 
         const toggleIcon = document.createElement('span');
@@ -706,8 +937,9 @@
         const matchList = document.createElement('div');
         matchList.className = 'match-list';
 
-        // ヘッダークリックで開閉トグル
+        // ヘッダークリックで選択および開閉トグル
         fileHeader.addEventListener('click', () => {
+          selectItem(fileHeader, false);
           const isHidden = matchList.classList.toggle('hidden');
           toggleIcon.classList.toggle('expanded', !isHidden);
         });
@@ -735,7 +967,6 @@
         };
 
         fileDomMap.set(file.filePath, fileDom);
-        fragment.appendChild(fileGroup);
       } else {
         // 既存ファイルグループの更新: プライマリエンコーディングとバッジの同期
         const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'utf-8';
@@ -766,8 +997,13 @@
       }
     }
 
-    if (fragment.childNodes.length > 0) {
-      resultsContainer.appendChild(fragment);
+    // 【重要】渡されたソート済み配列 (fileResults) の順序通りに DOM の子要素順序を完全に同期させる
+    // appendChild は既存のノードを末尾に移動するため、fileResults の順序で呼ぶことで確実に正しい順序 (carry.php < stock.php) に整列される
+    for (const file of fileResults) {
+      const dom = fileDomMap.get(file.filePath);
+      if (dom && dom.container) {
+        resultsContainer.appendChild(dom.container);
+      }
     }
   }
 })();

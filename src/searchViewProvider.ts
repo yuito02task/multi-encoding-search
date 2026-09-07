@@ -16,7 +16,10 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   private readonly runner: RipgrepRunner;
   private readonly iconService: FileIconService;
 
-  constructor(private readonly extensionUri: vscode.Uri) {
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly context?: vscode.ExtensionContext
+  ) {
     this.runner = new RipgrepRunner();
     this.iconService = new FileIconService();
 
@@ -310,6 +313,14 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         );
         break;
 
+      case 'saveHistory':
+        if (this.context) {
+          await this.context.globalState.update('multiEncodingSearch.searchHistory', message.searchHistory);
+          await this.context.globalState.update('multiEncodingSearch.includeHistory', message.includeHistory);
+          await this.context.globalState.update('multiEncodingSearch.excludeHistory', message.excludeHistory);
+        }
+        break;
+
       case 'requestSettings':
         this.postMessageToWebview({
           command: 'updateSettings',
@@ -332,6 +343,23 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    * 検索コマンドを処理する
    */
   private async handleSearchCommand(options: SearchOptions): Promise<void> {
+    // 開いているエディターでのみ検索が有効な場合、開いている全ファイルのパスを取得
+    if (options.onlyOpenEditors) {
+      const openPaths = new Set<string>();
+      for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+          if (tab.input instanceof vscode.TabInputText) {
+            openPaths.add(tab.input.uri.fsPath);
+          }
+        }
+      }
+      for (const doc of vscode.workspace.textDocuments) {
+        if (!doc.isUntitled && doc.uri.scheme === 'file') {
+          openPaths.add(doc.uri.fsPath);
+        }
+      }
+      options.openEditorPaths = Array.from(openPaths);
+    }
     // ワークスペースフォルダの確認
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -557,8 +585,10 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       detailsToggleTitle: translate('Toggle Search Details', '詳細検索オプションの表示切り替え'),
       filesToInclude: translate('files to include', '含めるファイル'),
       filesToIncludePlaceholder: translate('e.g. *.ts, src/**', '例: *.ts, src/**'),
+      searchOnlyOpenEditors: translate('Search only in Open Editors', '開いているエディターでのみ検索'),
       filesToExclude: translate('files to exclude', '除外するファイル'),
       filesToExcludePlaceholder: translate('e.g. node_modules/**, vendor/**', '例: node_modules/**, vendor/**'),
+      useExcludeSettings: translate('Use Exclude Settings and Ignore Files', '除外設定を使用してファイルを無視'),
       searching: translate('Searching...', '検索中...'),
       noResults: translate('No results found.', '一致する結果は見つかりませんでした。'),
       resultsTruncated: translate(' (showing first 10,000 results)', ' (上限10,000件に達したため一部のみ表示)'),
@@ -582,6 +612,13 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     // l10n 文字列の取得
     const i18n = this.getI18nStrings();
 
+    // globalState から永続化された履歴を復元
+    const initialHistory = {
+      searchHistory: this.context?.globalState.get<string[]>('multiEncodingSearch.searchHistory') || [],
+      includeHistory: this.context?.globalState.get<string[]>('multiEncodingSearch.includeHistory') || [],
+      excludeHistory: this.context?.globalState.get<string[]>('multiEncodingSearch.excludeHistory') || []
+    };
+
     return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -598,7 +635,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       <!-- 検索入力行 -->
       <div class="search-input-wrapper">
         <div class="input-box-container">
-          <input type="text" id="searchInput" class="search-input" placeholder="${i18n.searchPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <textarea id="searchInput" class="search-input" rows="1" placeholder="${i18n.searchPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
           <div class="input-actions">
             <button id="btnCaseSensitive" class="icon-toggle-btn" title="${i18n.matchCase}">
               <span class="toggle-icon">Aa</span>
@@ -625,12 +662,26 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           <label for="includeInput" class="field-label">${i18n.filesToInclude}</label>
           <div class="input-box-container details-box">
             <input type="text" id="includeInput" class="details-input" placeholder="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+            <div class="input-actions details-actions">
+              <button id="btnSearchOnlyOpenEditors" class="icon-toggle-btn" title="${i18n.searchOnlyOpenEditors}">
+                <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+                  <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A2.5 2.5 0 0 1 8 3.5 2.5 2.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v9a1.5 1.5 0 0 1-1.5 1.5h-3A2.5 2.5 0 0 0 8 14.5 2.5 2.5 0 0 0 5.5 13h-3A1.5 1.5 0 0 1 1 11.5v-9zM2.5 2a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h3A1.5 1.5 0 0 1 7 13.5v-10A1.5 1.5 0 0 0 5.5 2h-3zm11 0h-3A1.5 1.5 0 0 0 9 3.5v10a1.5 1.5 0 0 1 1.5-1.5h3a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5z"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
         <div class="details-field">
           <label for="excludeInput" class="field-label">${i18n.filesToExclude}</label>
           <div class="input-box-container details-box">
             <input type="text" id="excludeInput" class="details-input" placeholder="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+            <div class="input-actions details-actions">
+              <button id="btnUseExcludeSettings" class="icon-toggle-btn active" title="${i18n.useExcludeSettings}">
+                <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+                  <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.273a5.727 5.727 0 0 1 4.545 2.247L3.52 13.545A5.727 5.727 0 0 1 8 2.273zm0 11.454a5.727 5.727 0 0 1-4.545-2.247L12.48 2.455A5.727 5.727 0 0 1 8 13.727z"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -646,6 +697,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   <script nonce="${nonce}">
     window.i18nStrings = ${JSON.stringify(i18n)};
     window.initialSettings = ${JSON.stringify(this.getDisplaySettings())};
+    window.initialHistory = ${JSON.stringify(initialHistory)};
   </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

@@ -65,7 +65,7 @@ body {
   position: relative;
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   background-color: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, transparent);
   border-radius: 2px;
@@ -75,16 +75,24 @@ body {
   border-color: var(--vscode-focusBorder);
 }
 
-/* 検索テキストボックス */
+/* 検索テキストボックス (複数行・自動折り返し・auto-grow対応 textarea) */
 .search-input {
   width: 100%;
-  padding: 3px 56px 3px 6px;
+  min-height: 24px;
+  max-height: 134px;
+  line-height: 18px;
+  padding: 3px 82px 3px 6px;
   background: transparent;
   color: var(--vscode-input-foreground);
   border: none;
   outline: none;
   font-size: var(--vscode-font-size, 13px);
   font-family: inherit;
+  resize: none;
+  overflow-y: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-sizing: border-box;
 }
 
 .search-input::placeholder {
@@ -94,12 +102,14 @@ body {
 /* トグルボタングループ (入力欄の右端に配置) */
 .input-actions {
   position: absolute;
+  top: 3px;
   right: 2px;
   display: flex;
   gap: 2px;
+  z-index: 2;
 }
 
-/* アイコントグルボタン (Aa, \b, .*) */
+/* アイコントグルボタン (Aa, \b, .*, SVG等) */
 .icon-toggle-btn {
   display: flex;
   align-items: center;
@@ -116,6 +126,11 @@ body {
   font-size: 10px;
   font-family: var(--vscode-editor-font-family, monospace);
   font-weight: bold;
+}
+
+.toggle-icon-svg {
+  display: block;
+  fill: currentColor;
 }
 
 .icon-toggle-btn:hover {
@@ -192,17 +207,25 @@ body {
 
 .details-box {
   width: 100%;
+  align-items: center;
+}
+
+.details-actions {
+  top: 50%;
+  transform: translateY(-50%);
+  right: 2px;
 }
 
 .details-input {
   width: 100%;
-  padding: 3px 6px;
+  padding: 3px 26px 3px 6px;
   background: transparent;
   color: var(--vscode-input-foreground);
   border: none;
   outline: none;
   font-size: var(--vscode-font-size, 13px);
   font-family: inherit;
+  box-sizing: border-box;
 }
 
 .details-input::placeholder {
@@ -274,10 +297,23 @@ body {
   cursor: pointer;
   border-radius: 3px;
   gap: 4px;
+  outline: none;
 }
 
 .file-header:hover {
   background-color: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
+}
+
+.file-header.selected {
+  background-color: var(--vscode-list-activeSelectionBackground, #094771);
+  color: var(--vscode-list-activeSelectionForeground, #ffffff);
+  outline: 1px solid var(--vscode-list-focusOutline, #007acc);
+  outline-offset: -1px;
+}
+
+.file-header.selected .file-name,
+.file-header.selected .file-dir {
+  color: var(--vscode-list-activeSelectionForeground, #ffffff);
 }
 
 .file-toggle-icon {
@@ -423,14 +459,23 @@ body {
   font-size: var(--search-font-size);
   gap: 6px;
   overflow: hidden;
+  outline: none;
 }
 
 .match-item:hover {
   background-color: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
 }
 
+.match-item.selected,
 .match-item:active {
   background-color: var(--vscode-list-activeSelectionBackground, #094771);
+  color: var(--vscode-list-activeSelectionForeground, #ffffff);
+  outline: 1px solid var(--vscode-list-focusOutline, #007acc);
+  outline-offset: -1px;
+}
+
+.match-item.selected .match-position,
+.match-item.selected .match-preview {
   color: var(--vscode-list-activeSelectionForeground, #ffffff);
 }
 
