@@ -32,10 +32,18 @@ interface SearchMatchInternal extends SearchMatch {
 }
 
 /**
- * 内部管理用のファイル検索結果 (行マップ付き)
+ * 行単位の内部管理グループ (文字コード品質スコア付き)
+ */
+interface LineGroupInternal {
+  qualityScore: number;
+  matches: SearchMatchInternal[];
+}
+
+/**
+ * 内部管理用のファイル検索結果 (行グループマップ付き)
  */
 interface FileSearchResultInternal extends FileSearchResult {
-  lineMap: Map<number, SearchMatchInternal>;
+  lineGroups: Map<number, LineGroupInternal>;
 }
 
 /**
@@ -138,15 +146,15 @@ export class RipgrepRunner {
             const parsed = JSON.parse(line);
             if (parsed.type === 'match' && parsed.data) {
               const matchData = parsed.data as RgMatchData;
-              const added = this.handleMatchData(
+              const addedCount = this.handleMatchData(
                 matchData,
                 workspaceFolders,
                 fileResultMap,
                 encoding
               );
 
-              if (added) {
-                totalMatchCount++;
+              if (addedCount > 0) {
+                totalMatchCount += addedCount;
 
                 // 上限件数に達した場合は全プロセスを停止
                 if (totalMatchCount >= MAX_MATCH_LIMIT) {
@@ -155,8 +163,8 @@ export class RipgrepRunner {
                 }
 
                 notifyProgress();
-              } else {
-                // 既存行の文字コード改善・置換が行われた場合も進捗を反映
+              } else if (addedCount < 0) {
+                totalMatchCount += addedCount;
                 notifyProgress();
               }
             }
@@ -291,15 +299,15 @@ export class RipgrepRunner {
   }
 
   /**
-   * 1件の ripgrep マッチデータを FileSearchResult にマッピング・重複排除・文字コード品質評価して格納する
-   * @returns 新規に行が追加された場合は true、既存行の置換・マージまたは破棄の場合は false
+   * 1件の ripgrep マッチデータを FileSearchResult にマッピング・同一行内複数マッチの個別展開・文字コード品質評価して格納する
+   * @returns 追加・変更されたマッチ数 (新規行なら追加数、置換なら差分、破棄なら 0)
    */
   private handleMatchData(
     matchData: RgMatchData,
     workspaceFolders: string[],
     fileResultMap: Map<string, FileSearchResultInternal>,
     encoding: SupportedEncoding
-  ): boolean {
+  ): number {
     const filePath = matchData.path.text;
     const lineNumber = matchData.line_number;
 
@@ -314,17 +322,10 @@ export class RipgrepRunner {
     // ripgrep のバイトオフセットを JavaScript / VS Code の文字インデックス (UTF-16) に変換
     const convertedSubmatches: Submatch[] = [];
     let charSearchCursor = 0;
-    let originalFirstCol = 1;
 
     for (let i = 0; i < matchData.submatches.length; i++) {
       const sub = matchData.submatches[i];
       const matchText = sub.match.text;
-
-      // 元の行での出現位置 (ジャンプ用列番号の計算)
-      if (i === 0) {
-        const rawIdx = rawLineText.indexOf(matchText);
-        originalFirstCol = rawIdx !== -1 ? rawIdx + 1 : sub.start + 1;
-      }
 
       // トリム後の表示用行テキスト内での出現位置を検索 (行内の前のマッチ位置以降から探す)
       const foundIndex = cleanLineText.indexOf(matchText, charSearchCursor);
@@ -348,9 +349,6 @@ export class RipgrepRunner {
       }
     }
 
-    // 列番号はファイルオープンジャンプ用の元行 1 始まり文字インデックス
-    const columnNumber = originalFirstCol;
-
     // ファイル検索結果オブジェクトの取得または新規作成
     let fileResult = fileResultMap.get(filePath);
     if (!fileResult) {
@@ -369,7 +367,7 @@ export class RipgrepRunner {
         dirPath,
         matches: [],
         primaryEncoding: detectedFileEncoding,
-        lineMap: new Map<number, SearchMatchInternal>()
+        lineGroups: new Map<number, LineGroupInternal>()
       };
       fileResultMap.set(filePath, fileResult);
     }
@@ -381,50 +379,68 @@ export class RipgrepRunner {
       qualityScore += 200;
     }
 
-    const newMatchInternal: SearchMatchInternal = {
-      lineNumber,
-      columnNumber,
-      lineText: cleanLineText,
-      submatches: convertedSubmatches,
-      encoding: fileResult.primaryEncoding || encoding,
-      qualityScore
-    };
+    // VS Code 標準準拠: 同一行に複数のマッチが含まれる場合、それぞれを独立した検索結果項目として生成
+    const matchesForThisLine: SearchMatchInternal[] = [];
+
+    if (convertedSubmatches.length > 0) {
+      for (let idx = 0; idx < convertedSubmatches.length; idx++) {
+        const sub = convertedSubmatches[idx];
+        // 元の行での出現位置 (ジャンプ用 1 始まり文字インデックス)
+        const colNumber = leadingIndentLength + sub.start + 1;
+        matchesForThisLine.push({
+          id: `${lineNumber}:${idx}:${colNumber}`,
+          lineNumber,
+          columnNumber: colNumber,
+          lineText: cleanLineText,
+          submatches: [sub], // この項目でハイライトすべきサブマッチ
+          encoding: fileResult.primaryEncoding || encoding,
+          qualityScore
+        });
+      }
+    } else {
+      // サブマッチが空の場合のフォールバック
+      matchesForThisLine.push({
+        id: `${lineNumber}:0:1`,
+        lineNumber,
+        columnNumber: 1,
+        lineText: cleanLineText,
+        submatches: [],
+        encoding: fileResult.primaryEncoding || encoding,
+        qualityScore
+      });
+    }
 
     // 同一ファイルの同一行番号 (lineNumber) がすでに登録されているか確認
-    const existingMatch = fileResult.lineMap.get(lineNumber);
+    const existingGroup = fileResult.lineGroups.get(lineNumber);
 
-    if (existingMatch) {
+    if (existingGroup) {
       // 既存の行が存在する場合: 品質の高い方を優先して採用する
-      if (qualityScore > existingMatch.qualityScore) {
-        // 新しいマッチの方が品質が高い (文字化けなし、より正確なデコード) -> 既存の行を置換
-        existingMatch.lineText = cleanLineText;
-        existingMatch.submatches = convertedSubmatches;
-        existingMatch.columnNumber = columnNumber;
-        existingMatch.encoding = fileResult.primaryEncoding || encoding;
-        existingMatch.qualityScore = qualityScore;
-        return false;
-      } else if (qualityScore === existingMatch.qualityScore) {
-        // スコアが同じ場合: 追加のサブマッチがあればマージ
-        for (const sub of convertedSubmatches) {
-          const alreadyExists = existingMatch.submatches.some(
-            (s) => Math.abs(s.start - sub.start) <= 1 && s.matchText === sub.matchText
-          );
-          if (!alreadyExists) {
-            existingMatch.submatches.push(sub);
-          }
-        }
-        return false;
+      if (qualityScore > existingGroup.qualityScore) {
+        // 新しいマッチの方が品質が高い (文字化けなし、より正確なデコード) -> 既存の行のマッチ群を置換
+        const oldCount = existingGroup.matches.length;
+        // 既存マッチを matches 配列から除外
+        fileResult.matches = fileResult.matches.filter((m) => m.lineNumber !== lineNumber);
+        // 新しいマッチを追加
+        fileResult.matches.push(...matchesForThisLine);
+        fileResult.lineGroups.set(lineNumber, {
+          qualityScore,
+          matches: matchesForThisLine
+        });
+        return matchesForThisLine.length - oldCount;
       } else {
-        // 既存のマッチの方が品質が高い -> 新しい文字化けマッチは破棄
-        return false;
+        // 既存のマッチの方が品質が高いか同じ -> 新しいマッチは破棄
+        return 0;
       }
     }
 
-    // 新規行の場合: マップおよびリストに追加
-    fileResult.lineMap.set(lineNumber, newMatchInternal);
-    fileResult.matches.push(newMatchInternal);
+    // 新規行の場合: グループマップおよびリストに追加
+    fileResult.lineGroups.set(lineNumber, {
+      qualityScore,
+      matches: matchesForThisLine
+    });
+    fileResult.matches.push(...matchesForThisLine);
 
-    return true;
+    return matchesForThisLine.length;
   }
 
   /**

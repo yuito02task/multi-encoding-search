@@ -8,7 +8,7 @@
   "⚡ Auto Encoding": "⚡ 文字コード自動判定",
   "Searches EUC-JP, UTF-8, and Shift_JIS automatically in parallel": "EUC-JP、UTF-8、Shift_JIS を同時に自動並行検索します",
   "Details": "詳細条件",
-  "Toggle search details": "詳細検索オプションの表示切り替え",
+  "Toggle search details": "詳細検索の切り替え",
   "files to include": "含めるファイル",
   "e.g. *.php, src/**": "例: *.php, src/**",
   "files to exclude": "除外するファイル",

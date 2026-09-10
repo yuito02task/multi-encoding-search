@@ -25,7 +25,9 @@ This extension addresses the long-standing workspace search limitations discusse
 - **Multi-line Search & Auto-grow**: Supports multi-line search queries via pasting or `Shift + Enter`. The search input box automatically wraps long queries cleanly before reaching toggle buttons and expands vertically.
 - **Enhanced Native Search Options**: Includes "Search only in Open Editors" button and "Use Exclude Settings and Ignore Files" toggle button in include/exclude filters.
 - **Search History Navigation & Persistence**: Seamlessly navigate past search keywords using Up/Down arrow keys with debounced execution and empty reset. Search histories persist across sessions and restarts via VS Code globalState.
-- **Interactive Keyboard Navigation**: Click any result to select it with native highlight styling, and navigate between matches and files effortlessly using Up/Down arrow keys and Enter.
+- **Interactive Keyboard Navigation & Focus Preservation**: Click any result to select it with native highlight styling while preserving search view focus. Navigate between matches and files effortlessly using Up/Down arrow keys with live editor preview synchronization, and press Enter to focus the editor.
+- **Accurate Multi-match Line Support**: Accurately counts and presents multiple occurrences of the search keyword on the same line as separate result items, fully complying with native VS Code search behavior.
+- **Persistent Search Details State**: Remembers whether the search details panel ("Toggle Search Details") is expanded or collapsed even after closing and reopening VS Code.
 - **Strict Sorting & Result Stability**: Guarantees consistent natural alphabetical ordering of search results (directory hierarchy followed by natural file name order) even across parallel multi-threaded processes.
 - **Parallel Multi-Encoding Search**: Runs `ripgrep` across `EUC-JP`, `Shift_JIS` (CP932 / Windows-31J), and `UTF-8` in parallel by default, with configurable support for `UTF-16LE/BE`, `Windows-1252` (Latin-1), `GB18030`, `GBK`, `Big5`, and `EUC-KR`. Intelligent quality scoring automatically selects the best decoded text and eliminates duplicate lines across encodings.
 - **Native File Icons & Theme Integration**: Displays file icons next to file names matching your active VS Code File Icon Theme (e.g., Material Icon Theme, Seti, vscode-icons) with automatic fallbacks.
@@ -49,17 +51,19 @@ VS Code の標準検索は `files.encoding`（通常 UTF-8）に依存してい�
 1. **複数行文字列の検索 & 自動折り返し**: `Shift + Enter` での改行入力や複数行テキストの貼り付け検索に対応。トグルボタンに被らない位置で自動折り返し、行数に応じて入力欄の高さが伸縮します。
 2. **開いているエディターのみ検索 & 除外設定無視トグル**: VS Code 標準検索同様、「含めるファイル」に入力欄一体型の「開いているエディターでのみ検索」ボタン、「除外するファイル」に「除外設定を使用してファイルを無視（.gitignoreの有効/無効）」ボタンを搭載。
 3. **上下キー履歴ナビゲーション & 日をまたいだ永続化**: 検索欄で上下キー（↑/↓）による軽快なデバウンス履歴参照に対応。最新履歴の次は空欄に戻り、VS Code を再起動しても履歴が保持されます。
-4. **検索結果リストのキーボード操作 & 選択状態ハイライト**: 検索結果をクリックすると標準準拠の青色選択状態になり、上下キー（↑/↓）で各マッチ行・ファイルヘッダー間を移動、Enter キーでファイルジャンプが可能です。
-5. **完璧なソート順の保証**: 非同期 ripgrep プロセスでどのファイルが先に見つかっても、ディレクトリ階層順・自然順ファイル名順（例: carry.php が stock.php より上）に整列されます。
-6. **複数文字コードの同時並行検索 & スマート品質判定**: デフォルトで EUC-JP・Shift_JIS・UTF-8 を同時に検索。文字コード品質スコアリングにより、文字化け行の排除・同一行の重複表示防止・正確な文字コードタグ自動判定を行います。
-7. **VS Code アクティブアイコンテーマ連動**: Material Icon Theme や Seti など、VS Code で有効になっているファイルアイコンテーマと完全連動したアイコンを検索結果のファイル名左に表示。
-8. **インデントの自動除外表示**: 深いネストのコードでも先頭のインデントを自動で省き、サイドバー上でコード内容が見やすく左詰めで表示されます（ハイライト位置も完全補正）。
-9. **行番号表示のオン/オフ切り替え**: 設定から行番号のみ（`12`）の表示を自由に有効化・無効化可能。
-10. **正確なキーワード選択ジャンプ**: 日本語などのマルチバイト文字が含まれていても、クリック時に1文字のズレもなく対象キーワードがハイライト・選択されます。
-11. **外観カスタマイズ**: フォントサイズ、フォントファミリ、ハイライト色、文字色などを設定から自由に変更可能（即時反映）。
-12. **高速ストリーミング表示 & レンダリング最適化**: 差分レンダリングと軽量DOM更新により、大量のマッチがある場合でも軽快に動作。
-13. **文字コード自動適用オープン**: 検索結果をクリックすると、該当文字コードでエディタを再読み込み（`reopenWithEncoding`）してジャンプします。
-14. **設定不要 (マルチプラットフォーム対応)**: VS Code 内蔵 ripgrep を自動検出し、Windows、WSL（リモート接続）、macOS、Linux で追加設定なしで即座に動作します。
+4. **検索結果リストのキーボード操作 & フォーカス維持**: 検索結果をクリックした際、検索パネルのフォーカスを保ったままエディタでプレビュー表示。上下キー（↑/↓）で各マッチ行を連続プレビュー移動でき、Enter キーでエディタへフォーカスを移せます。
+5. **同一行内複数マッチの正確な個別展開 & カウント**: 1行に検索ワードが複数含まれている場合も、VS Code 標準検索と同様に個別の結果行として分けて表示し、総件数も正確にカウント。
+6. **詳細検索の開閉状態を永続化**: 「詳細検索の切り替え」の開閉状態が記憶され、VS Code を閉じて開き直しても前回の状態がそのまま復元されます。
+7. **完璧なソート順の保証**: 非同期 ripgrep プロセスでどのファイルが先に見つかっても、ディレクトリ階層順・自然順ファイル名順（例: carry.php が stock.php より上）に整列されます。
+8. **複数文字コードの同時並行検索 & スマート品質判定**: デフォルトで EUC-JP・Shift_JIS・UTF-8 を同時に検索。文字コード品質スコアリングにより、文字化け行の排除・同一行の重複表示防止・正確な文字コードタグ自動判定を行います。
+9. **VS Code アクティブアイコンテーマ連動**: Material Icon Theme や Seti など、VS Code で有効になっているファイルアイコンテーマと完全連動したアイコンを検索結果のファイル名左に表示。
+10. **インデントの自動除外表示**: 深いネストのコードでも先頭のインデントを自動で省き、サイドバー上でコード内容が見やすく左詰めで表示されます（ハイライト位置も完全補正）。
+11. **行番号表示のオン/オフ切り替え**: 設定から行番号のみ（`12`）の表示を自由に有効化・無効化可能。
+12. **正確なキーワード選択ジャンプ**: 日本語などのマルチバイト文字が含まれていても、クリック時に1文字のズレもなく対象キーワードがハイライト・選択されます。
+13. **外観カスタマイズ**: フォントサイズ、フォントファミリ、ハイライト色、文字色などを設定から自由に変更可能（即時反映）。
+14. **高速ストリーミング表示 & レンダリング最適化**: 差分レンダリングと軽量DOM更新により、大量のマッチがある場合でも軽快に動作。
+15. **文字コード自動適用オープン**: 検索結果をクリックすると、該当文字コードでエディタを再読み込み（`reopenWithEncoding`）してジャンプします。
+16. **設定不要 (マルチプラットフォーム対応)**: VS Code 内蔵 ripgrep を自動検出し、Windows、WSL（リモート接続）、macOS、Linux で追加設定なしで即座に動作します。
 
 ---
 

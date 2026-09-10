@@ -57,6 +57,8 @@ export interface Submatch {
  * 1件の検索マッチ結果
  */
 export interface SearchMatch {
+  /** 一意の識別子 (同一行複数マッチ用、例: "10:5") */
+  id?: string;
   /** 行番号 (1始まり) */
   lineNumber: number;
   /** 列番号 (1始まり) */
@@ -115,9 +117,10 @@ export interface FileSearchResult {
 export type WebviewMessage =
   | { command: 'search'; options: SearchOptions }
   | { command: 'cancel' }
-  | { command: 'openFile'; filePath: string; line: number; column: number; length: number; encoding: SupportedEncoding; matchText?: string }
+  | { command: 'openFile'; filePath: string; line: number; column: number; length: number; encoding: SupportedEncoding; matchText?: string; preserveFocus?: boolean }
   | { command: 'requestSettings' }
-  | { command: 'saveHistory'; searchHistory: string[]; includeHistory: string[]; excludeHistory: string[] };
+  | { command: 'saveHistory'; searchHistory: string[]; includeHistory: string[]; excludeHistory: string[] }
+  | { command: 'saveDetailsExpanded'; isExpanded: boolean };
 
 /**
  * 拡張機能ホストから Webview へ送信されるメッセージの型定義

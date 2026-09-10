@@ -289,6 +289,16 @@
     excludeInput.value = previousState.excludePattern;
   }
 
+  // 詳細検索オプションの開閉状態の復元 (前回の状態または初期HTMLの反映)
+  // @ts-ignore
+  let isDetailsExpanded = previousState.isDetailsExpanded !== undefined
+    ? !!previousState.isDetailsExpanded
+    // @ts-ignore
+    : (window.initialDetailsExpanded !== undefined ? !!window.initialDetailsExpanded : false);
+
+  detailsContainer.classList.toggle('hidden', !isDetailsExpanded);
+  btnToggleDetails.classList.toggle('active', isDetailsExpanded);
+
   // 新規トグルオプション: 開いているエディターでのみ検索 / 除外設定を使用してファイルを無視
   let onlyOpenEditors = !!previousState.onlyOpenEditors;
   if (onlyOpenEditors && btnSearchOnlyOpenEditors) {
@@ -316,6 +326,7 @@
       excludePattern: excludeInput.value,
       onlyOpenEditors,
       useExcludeSettings,
+      isDetailsExpanded,
       searchHistory: searchHist,
       includeHistory: includeHist,
       excludeHistory: excludeHist
@@ -423,8 +434,14 @@
 
   // 詳細オプションの開閉 (三点リーダーボタン)
   btnToggleDetails.addEventListener('click', () => {
-    const isHidden = detailsContainer.classList.toggle('hidden');
-    btnToggleDetails.classList.toggle('active', !isHidden);
+    isDetailsExpanded = !isDetailsExpanded;
+    detailsContainer.classList.toggle('hidden', !isDetailsExpanded);
+    btnToggleDetails.classList.toggle('active', isDetailsExpanded);
+    saveState();
+    vscode.postMessage({
+      command: 'saveDetailsExpanded',
+      isExpanded: isDetailsExpanded
+    });
   });
 
   // placeholder の動的制御 (VS Code 標準準拠)
@@ -765,17 +782,45 @@
 
     const currentIndex = selectedItem ? items.indexOf(selectedItem) : -1;
 
+    /**
+     * 指定アイテムがマッチ行の場合、エディタプレビューを同期する (フォーカスは検索パネルに残す)
+     * @param {HTMLElement} item
+     */
+    const triggerPreview = (item) => {
+      // @ts-ignore
+      if (item && item.classList.contains('match-item') && item._file && item._match) {
+        // @ts-ignore
+        const file = item._file;
+        // @ts-ignore
+        const match = item._match;
+        const firstSub = match.submatches && match.submatches[0];
+        const matchLength = firstSub ? firstSub.end - firstSub.start : 1;
+        const matchText = firstSub ? firstSub.matchText : '';
+        vscode.postMessage({
+          command: 'openFile',
+          filePath: file.filePath,
+          line: match.lineNumber,
+          column: match.columnNumber,
+          length: matchLength,
+          encoding: match.encoding,
+          matchText,
+          preserveFocus: true
+        });
+      }
+    };
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (currentIndex === -1 || currentIndex >= items.length - 1) {
-        selectItem(items[0]);
-      } else {
-        selectItem(items[currentIndex + 1]);
-      }
+      const nextIndex = (currentIndex === -1 || currentIndex >= items.length - 1) ? 0 : currentIndex + 1;
+      const nextItem = items[nextIndex];
+      selectItem(nextItem, true);
+      triggerPreview(nextItem);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (currentIndex > 0) {
-        selectItem(items[currentIndex - 1]);
+        const prevItem = items[currentIndex - 1];
+        selectItem(prevItem, true);
+        triggerPreview(prevItem);
       } else if (currentIndex === 0) {
         // 先頭で上キーを押した場合は検索入力欄へフォーカス移動 (VS Code 標準導線)
         searchInput.focus();
@@ -784,7 +829,29 @@
     } else if (e.key === 'Enter') {
       if (selectedItem) {
         e.preventDefault();
-        selectedItem.click();
+        // @ts-ignore
+        if (selectedItem.classList.contains('match-item') && selectedItem._file && selectedItem._match) {
+          // Enter キー押下時はエディタにフォーカスを移動する (preserveFocus: false)
+          // @ts-ignore
+          const file = selectedItem._file;
+          // @ts-ignore
+          const match = selectedItem._match;
+          const firstSub = match.submatches && match.submatches[0];
+          const matchLength = firstSub ? firstSub.end - firstSub.start : 1;
+          const matchText = firstSub ? firstSub.matchText : '';
+          vscode.postMessage({
+            command: 'openFile',
+            filePath: file.filePath,
+            line: match.lineNumber,
+            column: match.columnNumber,
+            length: matchLength,
+            encoding: match.encoding,
+            matchText,
+            preserveFocus: false
+          });
+        } else {
+          selectedItem.click();
+        }
       }
     } else if (e.key === 'ArrowRight') {
       // ファイルヘッダーを展開
@@ -835,6 +902,11 @@
     matchItem.tabIndex = 0;
     matchItem.title = `${file.relativePath}:${match.lineNumber}:${match.columnNumber} [${formatEncodingName(match.encoding)}]`;
 
+    // @ts-ignore
+    matchItem._file = file;
+    // @ts-ignore
+    matchItem._match = match;
+
     const posSpan = document.createElement('span');
     posSpan.className = 'match-position';
     posSpan.textContent = `${match.lineNumber}`;
@@ -846,11 +918,11 @@
     matchItem.appendChild(posSpan);
     matchItem.appendChild(previewSpan);
 
-    // クリックで選択状態にし、ファイルを開いて文字コード自動適用＆ジャンプ
-    matchItem.addEventListener('click', (e) => {
-      e.stopPropagation();
-      selectItem(matchItem, false);
-
+    /**
+     * ファイルオープン要求を送信
+     * @param {boolean} preserveFocus
+     */
+    const openMatch = (preserveFocus = true) => {
       const firstSub = match.submatches && match.submatches[0];
       const matchLength = firstSub ? firstSub.end - firstSub.start : 1;
       const matchText = firstSub ? firstSub.matchText : '';
@@ -862,8 +934,22 @@
         column: match.columnNumber,
         length: matchLength,
         encoding: match.encoding,
-        matchText
+        matchText,
+        preserveFocus
       });
+    };
+
+    // クリックで選択状態にし、フォーカスを当ててエディタプレビューを開く (フォーカスは検索パネルに残す)
+    matchItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectItem(matchItem, true);
+      openMatch(true);
+    });
+
+    // ダブルクリックでエディタにフォーカスを移動して開く
+    matchItem.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      openMatch(false);
     });
 
     return matchItem;
@@ -937,9 +1023,9 @@
         const matchList = document.createElement('div');
         matchList.className = 'match-list';
 
-        // ヘッダークリックで選択および開閉トグル
+        // ヘッダークリックで選択および開閉トグル (フォーカスを維持)
         fileHeader.addEventListener('click', () => {
-          selectItem(fileHeader, false);
+          selectItem(fileHeader, true);
           const isHidden = matchList.classList.toggle('hidden');
           toggleIcon.classList.toggle('expanded', !isHidden);
         });
@@ -951,7 +1037,8 @@
           const match = file.matches[i];
           const matchElem = createMatchItemElement(file, match);
           matchList.appendChild(matchElem);
-          matchElements.set(match.lineNumber, matchElem);
+          const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
+          matchElements.set(matchKey, matchElem);
         }
 
         fileGroup.appendChild(fileHeader);
@@ -976,8 +1063,11 @@
 
         // 既存行の更新または新規行の追加
         for (const match of file.matches) {
-          const existingElem = fileDom.matchElements.get(match.lineNumber);
+          const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
+          const existingElem = fileDom.matchElements.get(matchKey);
           if (existingElem) {
+            existingElem._file = file;
+            existingElem._match = match;
             // 文字コード改善等で行内容が変わっている可能性があるためプレビューを安全に再構築
             const previewSpan = existingElem.querySelector('.match-preview');
             if (previewSpan) {
@@ -991,7 +1081,16 @@
             // 新規行の追加
             const newElem = createMatchItemElement(file, match);
             fileDom.matchList.appendChild(newElem);
-            fileDom.matchElements.set(match.lineNumber, newElem);
+            fileDom.matchElements.set(matchKey, newElem);
+          }
+        }
+
+        // 同一ファイル内の子要素の並び順 (行番号・列番号順) を同期
+        for (const match of file.matches) {
+          const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
+          const elem = fileDom.matchElements.get(matchKey);
+          if (elem) {
+            fileDom.matchList.appendChild(elem);
           }
         }
       }

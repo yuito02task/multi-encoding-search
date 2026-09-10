@@ -309,7 +309,8 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           message.column,
           message.length,
           message.encoding,
-          message.matchText
+          message.matchText,
+          message.preserveFocus
         );
         break;
 
@@ -318,6 +319,12 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           await this.context.globalState.update('multiEncodingSearch.searchHistory', message.searchHistory);
           await this.context.globalState.update('multiEncodingSearch.includeHistory', message.includeHistory);
           await this.context.globalState.update('multiEncodingSearch.excludeHistory', message.excludeHistory);
+        }
+        break;
+
+      case 'saveDetailsExpanded':
+        if (this.context) {
+          await this.context.globalState.update('multiEncodingSearch.isDetailsExpanded', message.isExpanded);
         }
         break;
 
@@ -434,7 +441,8 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     column: number,
     length: number,
     encoding: SupportedEncoding,
-    matchText?: string
+    matchText?: string,
+    preserveFocus: boolean = true
   ): Promise<void> {
     try {
       const fileUri = vscode.Uri.file(filePath);
@@ -443,9 +451,10 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       // VS Code の行番号は 0 始まり
       const targetLine = Math.max(0, line - 1);
 
-      // エディタで開く
+      // エディタで開く (preserveFocus で検索ビューのフォーカスを維持)
       const editor = await vscode.window.showTextDocument(doc, {
         preview: true,
+        preserveFocus,
         viewColumn: vscode.ViewColumn.One
       });
 
@@ -508,6 +517,11 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           new vscode.Position(targetLine, endCol)
         );
         activeEditor.revealRange(selectionRange, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+
+        // フォーカス維持が要求されている場合、WebviewView のフォーカスを維持
+        if (preserveFocus && this.view) {
+          this.view.show?.(true);
+        }
       }
     } catch (error: any) {
       const errMsg = vscode.l10n.t('Failed to open file: {0} ({1})', filePath, error?.message || error);
@@ -582,7 +596,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       matchWholeWord: translate('Match Whole Word', '単語全体に一致 (Match Whole Word)'),
       useRegularExpression: translate('Use Regular Expression', '正規表現を使用 (Use Regular Expression)'),
       toggleLineNumbers: translate('Toggle Line Numbers', '行番号の表示/非表示 (Toggle Line Numbers)'),
-      detailsToggleTitle: translate('Toggle Search Details', '詳細検索オプションの表示切り替え'),
+      detailsToggleTitle: translate('Toggle Search Details', '詳細検索の切り替え'),
       filesToInclude: translate('files to include', '含めるファイル'),
       filesToIncludePlaceholder: translate('e.g. *.ts, src/**', '例: *.ts, src/**'),
       searchOnlyOpenEditors: translate('Search only in Open Editors', '開いているエディターでのみ検索'),
@@ -612,12 +626,13 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     // l10n 文字列の取得
     const i18n = this.getI18nStrings();
 
-    // globalState から永続化された履歴を復元
+    // globalState から永続化された履歴と詳細検索の開閉状態を復元
     const initialHistory = {
       searchHistory: this.context?.globalState.get<string[]>('multiEncodingSearch.searchHistory') || [],
       includeHistory: this.context?.globalState.get<string[]>('multiEncodingSearch.includeHistory') || [],
       excludeHistory: this.context?.globalState.get<string[]>('multiEncodingSearch.excludeHistory') || []
     };
+    const isDetailsExpanded = this.context?.globalState.get<boolean>('multiEncodingSearch.isDetailsExpanded') || false;
 
     return `<!DOCTYPE html>
 <html lang="ja">
@@ -651,13 +666,13 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
             </button>
           </div>
         </div>
-        <button id="btnToggleDetails" class="details-toggle-btn" title="${i18n.detailsToggleTitle}">
+        <button id="btnToggleDetails" class="details-toggle-btn ${isDetailsExpanded ? 'active' : ''}" title="${i18n.detailsToggleTitle}">
           <span class="toggle-icon-dots">…</span>
         </button>
       </div>
 
       <!-- 詳細条件 (include / exclude) -->
-      <div id="detailsContainer" class="details-container hidden">
+      <div id="detailsContainer" class="details-container ${isDetailsExpanded ? '' : 'hidden'}">
         <div class="details-field">
           <label for="includeInput" class="field-label">${i18n.filesToInclude}</label>
           <div class="input-box-container details-box">
@@ -698,6 +713,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     window.i18nStrings = ${JSON.stringify(i18n)};
     window.initialSettings = ${JSON.stringify(this.getDisplaySettings())};
     window.initialHistory = ${JSON.stringify(initialHistory)};
+    window.initialDetailsExpanded = ${isDetailsExpanded};
   </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

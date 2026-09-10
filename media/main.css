@@ -304,7 +304,8 @@ body {
   background-color: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
 }
 
-.file-header.selected {
+.file-header.selected,
+.file-header:focus {
   background-color: var(--vscode-list-activeSelectionBackground, #094771);
   color: var(--vscode-list-activeSelectionForeground, #ffffff);
   outline: 1px solid var(--vscode-list-focusOutline, #007acc);
@@ -312,7 +313,9 @@ body {
 }
 
 .file-header.selected .file-name,
-.file-header.selected .file-dir {
+.file-header.selected .file-dir,
+.file-header:focus .file-name,
+.file-header:focus .file-dir {
   color: var(--vscode-list-activeSelectionForeground, #ffffff);
 }
 
@@ -467,6 +470,7 @@ body {
 }
 
 .match-item.selected,
+.match-item:focus,
 .match-item:active {
   background-color: var(--vscode-list-activeSelectionBackground, #094771);
   color: var(--vscode-list-activeSelectionForeground, #ffffff);
@@ -475,7 +479,9 @@ body {
 }
 
 .match-item.selected .match-position,
-.match-item.selected .match-preview {
+.match-item.selected .match-preview,
+.match-item:focus .match-position,
+.match-item:focus .match-preview {
   color: var(--vscode-list-activeSelectionForeground, #ffffff);
 }
 
