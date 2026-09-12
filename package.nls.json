@@ -1,6 +1,6 @@
 {
   "extension.displayName": "Multi-Encoding Search",
-  "extension.description": "Fixes VS Code's workspace search encoding limitation. Automatically searches EUC-JP, Shift_JIS, and UTF-8 files simultaneously without changing your settings.",
+  "extension.description": "A drop-in replacement for VS Code workspace search with full multi-encoding support (except replace). Automatically searches across EUC-JP, Shift_JIS, UTF-8, EUC-KR, and more without changing settings.",
   "viewsContainers.multiEncodingSearch.title": "Multi-Encoding Search",
   "views.multiEncodingSearch.name": "Multi-Encoding Search",
   "config.title": "Multi-Encoding Search",

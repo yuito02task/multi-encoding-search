@@ -373,10 +373,9 @@ export class RipgrepRunner {
     }
 
     // 行テキストの品質スコアを算出 (文字化けの有無、日本語の正確さ)
-    // ファイル自体の文字コードと一致する ripgrep 出力にはボーナスを付与
     let qualityScore = this.calculateQualityScore(cleanLineText);
-    if (encoding === fileResult.primaryEncoding) {
-      qualityScore += 200;
+    if (fileResult.primaryEncoding && encoding === fileResult.primaryEncoding) {
+      qualityScore += 30;
     }
 
     // VS Code 標準準拠: 同一行に複数のマッチが含まれる場合、それぞれを独立した検索結果項目として生成
@@ -393,7 +392,7 @@ export class RipgrepRunner {
           columnNumber: colNumber,
           lineText: cleanLineText,
           submatches: [sub], // この項目でハイライトすべきサブマッチ
-          encoding: fileResult.primaryEncoding || encoding,
+          encoding: encoding, // 実際にヒットした ripgrep のエンコーディングを正確に設定
           qualityScore
         });
       }
@@ -405,7 +404,7 @@ export class RipgrepRunner {
         columnNumber: 1,
         lineText: cleanLineText,
         submatches: [],
-        encoding: fileResult.primaryEncoding || encoding,
+        encoding: encoding,
         qualityScore
       });
     }
@@ -426,6 +425,8 @@ export class RipgrepRunner {
           qualityScore,
           matches: matchesForThisLine
         });
+        // ファイルの主要文字コードを最高品質マッチ群に合わせて同期・最適化
+        this.updateFilePrimaryEncoding(fileResult);
         return matchesForThisLine.length - oldCount;
       } else {
         // 既存のマッチの方が品質が高いか同じ -> 新しいマッチは破棄
@@ -440,7 +441,40 @@ export class RipgrepRunner {
     });
     fileResult.matches.push(...matchesForThisLine);
 
+    // ファイルの主要文字コードを最高品質マッチ群に合わせて同期・最適化
+    this.updateFilePrimaryEncoding(fileResult);
+
     return matchesForThisLine.length;
+  }
+
+  /**
+   * ファイル内の各マッチの品質スコアを集計し、最も高品質にデコードできている文字コードを primaryEncoding に同期する
+   */
+  private updateFilePrimaryEncoding(fileResult: FileSearchResultInternal): void {
+    if (fileResult.matches.length === 0) return;
+
+    const scoreByEnc = new Map<SupportedEncoding, number>();
+    for (const m of fileResult.matches) {
+      const enc = m.encoding;
+      const internalMatch = m as SearchMatchInternal;
+      // 文字化けしていない正常マッチのスコアを加算
+      const scoreWeight = internalMatch.qualityScore && internalMatch.qualityScore > 0 ? internalMatch.qualityScore : 1;
+      scoreByEnc.set(enc, (scoreByEnc.get(enc) || 0) + scoreWeight);
+    }
+
+    let bestEnc: SupportedEncoding = fileResult.primaryEncoding || 'utf-8';
+    let maxScore = -Infinity;
+
+    for (const [enc, score] of scoreByEnc.entries()) {
+      if (score > maxScore) {
+        maxScore = score;
+        bestEnc = enc;
+      }
+    }
+
+    if (bestEnc) {
+      fileResult.primaryEncoding = bestEnc;
+    }
   }
 
   /**
