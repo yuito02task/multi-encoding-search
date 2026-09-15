@@ -2,7 +2,7 @@
   "name": "multi-encoding-search",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "publisher": "yuitomaruyama",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -52,7 +52,9 @@
     "issue-256502",
     "issue-23570"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "l10n": "./l10n",
   "contributes": {

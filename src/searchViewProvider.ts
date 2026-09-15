@@ -15,6 +15,8 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private readonly runner: RipgrepRunner;
   private readonly iconService: FileIconService;
+  private cachedCss?: string;
+  private cachedJs?: string;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -22,6 +24,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   ) {
     this.runner = new RipgrepRunner();
     this.iconService = new FileIconService();
+    this.loadMediaAssets();
 
     // 設定変更の監視 (フォントサイズや色の変更、アイコンテーマの変更を即座に Webview へ通知)
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -40,6 +43,29 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         });
       }
     });
+  }
+
+  /**
+   * 初回表示を最速化するため、CSS と JS を事前読み込みしてメモリキャッシュする
+   */
+  private loadMediaAssets(): void {
+    try {
+      const cssPath = path.join(this.extensionUri.fsPath, 'media', 'main.css');
+      if (fs.existsSync(cssPath)) {
+        this.cachedCss = fs.readFileSync(cssPath, 'utf8');
+      }
+    } catch {
+      this.cachedCss = '';
+    }
+
+    try {
+      const jsPath = path.join(this.extensionUri.fsPath, 'media', 'main.js');
+      if (fs.existsSync(jsPath)) {
+        this.cachedJs = fs.readFileSync(jsPath, 'utf8');
+      }
+    } catch {
+      this.cachedJs = '';
+    }
   }
 
   /**
@@ -614,6 +640,11 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    * Webview の HTML を生成する
    */
   private getHtmlForWebview(webview: vscode.Webview): string {
+    // キャッシュが未ロードの場合は同期読み込み
+    if (this.cachedCss === undefined || this.cachedJs === undefined) {
+      this.loadMediaAssets();
+    }
+
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'media', 'main.js')
     );
@@ -634,13 +665,22 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     };
     const isDetailsExpanded = this.context?.globalState.get<boolean>('multiEncodingSearch.isDetailsExpanded') || false;
 
+    // 初回描画速度を最大化するため、CSS と JS を直接 HTML にインライン展開 (外部ファイルロード待ちをゼロに短縮)
+    const styleTag = this.cachedCss
+      ? `<style nonce="${nonce}">\n${this.cachedCss}\n</style>`
+      : `<link rel="stylesheet" href="${styleUri}">`;
+
+    const scriptTag = this.cachedJs
+      ? `<script nonce="${nonce}">\n${this.cachedJs}\n</script>`
+      : `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+
     return `<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: blob: https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="${styleUri}">
+  ${styleTag}
   <title>Multi-Encoding Search</title>
 </head>
 <body>
@@ -715,7 +755,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     window.initialHistory = ${JSON.stringify(initialHistory)};
     window.initialDetailsExpanded = ${isDetailsExpanded};
   </script>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
+  ${scriptTag}
 </body>
 </html>`;
   }
