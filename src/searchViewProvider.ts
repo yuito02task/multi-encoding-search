@@ -373,25 +373,52 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * VS Code の設定 (search.exclude および files.exclude) から有効な除外 glob パターン一覧を取得する
+   */
+  private getDefaultExcludePatterns(): string[] {
+    const patterns: string[] = [];
+    try {
+      const searchConfig = vscode.workspace.getConfiguration('search');
+      const searchExclude = searchConfig.get<Record<string, boolean>>('exclude') || {};
+      for (const [pattern, enabled] of Object.entries(searchExclude)) {
+        if (enabled) {
+          patterns.push(pattern);
+        }
+      }
+
+      const filesConfig = vscode.workspace.getConfiguration('files');
+      const filesExclude = filesConfig.get<Record<string, boolean>>('exclude') || {};
+      for (const [pattern, enabled] of Object.entries(filesExclude)) {
+        if (enabled) {
+          patterns.push(pattern);
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return patterns;
+  }
+
+  /**
    * 検索コマンドを処理する
    */
   private async handleSearchCommand(options: SearchOptions): Promise<void> {
-    // 開いているエディターでのみ検索が有効な場合、開いている全ファイルのパスを取得
+    // 開いているエディターでのみ検索が有効な場合、実際に開いているエディタタブのローカルファイルのみを厳密に抽出
     if (options.onlyOpenEditors) {
       const openPaths = new Set<string>();
       for (const group of vscode.window.tabGroups.all) {
         for (const tab of group.tabs) {
-          if (tab.input instanceof vscode.TabInputText) {
+          if (tab.input instanceof vscode.TabInputText && tab.input.uri.scheme === 'file') {
             openPaths.add(tab.input.uri.fsPath);
           }
         }
       }
-      for (const doc of vscode.workspace.textDocuments) {
-        if (!doc.isUntitled && doc.uri.scheme === 'file') {
-          openPaths.add(doc.uri.fsPath);
-        }
-      }
       options.openEditorPaths = Array.from(openPaths);
+    }
+
+    // 「除外設定を使用してファイルを無視」が有効な場合、VS Code 本体の除外設定 (search.exclude / files.exclude) を自動取得
+    if (options.useIgnoreFiles !== false) {
+      options.defaultExcludePatterns = this.getDefaultExcludePatterns();
     }
     // ワークスペースフォルダの確認
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -626,6 +653,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       useExcludeSettings: translate('Use Exclude Settings and Ignore Files', '除外設定を使用してファイルを無視'),
       searching: translate('Searching...', '検索中...'),
       noResults: translate('No results found.', '一致する結果は見つかりませんでした。'),
+      noResultsOpenEditors: translate('No results found in open editors.', '開いているエディターに一致する結果は見つかりませんでした。'),
       resultsTruncated: translate(' (showing first 10,000 results)', ' (上限10,000件に達したため一部のみ表示)'),
       searchCancelled: translate('Search was cancelled.', '検索がキャンセルされました。')
     };

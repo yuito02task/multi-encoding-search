@@ -37,6 +37,8 @@ export interface SearchOptions {
   openEditorPaths?: string[];
   /** 除外設定・無視ファイル (.gitignore 等) を使用するかどうか (デフォルト: true) */
   useIgnoreFiles?: boolean;
+  /** VS Code 設定 (search.exclude / files.exclude) から取得した既定の除外パターン一覧 */
+  defaultExcludePatterns?: string[];
   /** 検索対象の文字コード一覧 */
   targetEncodings?: SupportedEncoding[];
 }

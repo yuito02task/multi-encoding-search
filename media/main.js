@@ -368,14 +368,17 @@
     });
   }
 
-  // 履歴ナビゲーターの初期化 (VS Code 標準準拠: 上下キー移動時はテキスト全選択のみ行い、サクサク切り替える)
+  // 履歴ナビゲーターの初期化 (VS Code 標準準拠: 上下キー移動時はテキスト全選択を行い、デバウンスで自動検索連動)
   const searchHistoryNav = new HistoryNavigator(
     searchInput,
     previousState.searchHistory && previousState.searchHistory.length > 0
       ? previousState.searchHistory
       : (initialHistory.searchHistory || []),
     saveState,
-    saveState
+    () => {
+      saveState();
+      scheduleSearch(350); // 履歴巡回時も 350ms のデバウンスで自動検索連動
+    }
   );
   const includeHistoryNav = new HistoryNavigator(
     includeInput,
@@ -383,7 +386,10 @@
       ? previousState.includeHistory
       : (initialHistory.includeHistory || []),
     saveState,
-    saveState
+    () => {
+      saveState();
+      scheduleSearch(350);
+    }
   );
   const excludeHistoryNav = new HistoryNavigator(
     excludeInput,
@@ -391,7 +397,10 @@
       ? previousState.excludeHistory
       : (initialHistory.excludeHistory || []),
     saveState,
-    saveState
+    () => {
+      saveState();
+      scheduleSearch(350);
+    }
   );
 
   // トグルボタンのイベントハンドラ
@@ -435,7 +444,7 @@
     });
   }
 
-  // 「開いているエディターでのみ検索」ボタン
+  // 「開いているエディターでのみ検索」ボタン (トグル時に即座に検索再実行)
   if (btnSearchOnlyOpenEditors) {
     btnSearchOnlyOpenEditors.addEventListener('click', () => {
       onlyOpenEditors = !onlyOpenEditors;
@@ -447,7 +456,7 @@
     });
   }
 
-  // 「除外設定を使用してファイルを無視」ボタン
+  // 「除外設定を使用してファイルを無視」ボタン (トグル時に即座に検索再実行)
   if (btnUseExcludeSettings) {
     btnUseExcludeSettings.addEventListener('click', () => {
       useExcludeSettings = !useExcludeSettings;
@@ -494,10 +503,11 @@
   });
 
   /**
-   * デバウンス付き検索スケジュール (文字入力後 500ms 経過で自動実行)
-   * @param {number} [delayMs=500]
+   * デバウンス付き検索スケジュール (文字入力後または履歴移動後の自動実行)
+   * 自動検索時は履歴順序の破壊を防ぐため addToHistory=false で実行する
+   * @param {number} [delayMs=400]
    */
-  function scheduleSearch(delayMs = 500) {
+  function scheduleSearch(delayMs = 400) {
     if (debounceTimer) {
       clearTimeout(debounceTimer);
       debounceTimer = null;
@@ -516,7 +526,8 @@
 
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      executeSearch(true);
+      // 自動検索時は履歴に追加しない (Enter キー押下時のみ履歴追加)
+      executeSearch(false);
     }, delayMs);
   }
 
@@ -666,7 +677,9 @@
         isSearching = false;
         if (message.totalMatches === 0) {
           statusContainer.className = 'status-container';
-          statusContainer.textContent = i18n.noResults;
+          statusContainer.textContent = onlyOpenEditors
+            ? (i18n.noResultsOpenEditors || i18n.noResults)
+            : i18n.noResults;
           clearResults();
         } else {
           statusContainer.className = 'status-container';

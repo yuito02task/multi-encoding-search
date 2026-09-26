@@ -569,6 +569,16 @@ export class RipgrepRunner {
     // 除外設定を使用してファイルを無視 (useIgnoreFiles: デフォルト true。false の場合は無視設定を解除)
     if (options.useIgnoreFiles === false) {
       args.push('--no-ignore', '--hidden');
+    } else {
+      // VS Code 設定 (search.exclude / files.exclude) から渡された除外パターンを適用
+      if (options.defaultExcludePatterns && options.defaultExcludePatterns.length > 0) {
+        for (const rawPattern of options.defaultExcludePatterns) {
+          const globs = this.normalizeGlobPatterns(rawPattern, true);
+          for (const g of globs) {
+            args.push('--glob', g);
+          }
+        }
+      }
     }
 
     // Files to include (glob)
