@@ -78,6 +78,7 @@ body {
 /* 検索テキストボックス (複数行・自動折り返し・auto-grow対応 textarea) */
 .search-input {
   width: 100%;
+  height: 24px;
   min-height: 24px;
   max-height: 134px;
   line-height: 18px;
@@ -289,22 +290,43 @@ body {
   margin-bottom: 2px;
 }
 
-/* ファイルヘッダー (VS Code 標準ライクなデザイン) */
+/* ファイルヘッダー (VS Code 標準ツリーデザイン完全準拠) */
 .file-header {
   display: flex;
   align-items: center;
-  padding: 2px 4px;
-  cursor: pointer;
-  border-radius: 3px;
+  height: 22px;
+  line-height: 22px;
+  padding: 0 4px;
+  cursor: default;
+  border-radius: 0;
   gap: 4px;
   outline: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .file-header:hover {
-  background-color: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
+  background-color: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
+  color: var(--vscode-list-hoverForeground, inherit);
 }
 
-.file-header.selected,
+.file-header:hover .file-name {
+  color: var(--vscode-list-hoverForeground, var(--search-text-color));
+}
+
+.file-header:hover .file-dir {
+  color: var(--vscode-list-hoverForeground, var(--search-secondary-color));
+  opacity: 0.9;
+}
+
+.file-header.selected {
+  background-color: var(--vscode-list-inactiveSelectionBackground, rgba(255, 255, 255, 0.08));
+  color: var(--vscode-list-inactiveSelectionForeground, inherit);
+  outline: 1px dotted var(--vscode-list-focusOutline, transparent);
+  outline-offset: -1px;
+}
+
+.results-container:focus-within .file-header.selected,
 .file-header:focus {
   background-color: var(--vscode-list-activeSelectionBackground, #094771);
   color: var(--vscode-list-activeSelectionForeground, #ffffff);
@@ -316,7 +338,7 @@ body {
 .file-header.selected .file-dir,
 .file-header:focus .file-name,
 .file-header:focus .file-dir {
-  color: var(--vscode-list-activeSelectionForeground, #ffffff);
+  color: inherit;
 }
 
 .file-toggle-icon {
@@ -345,7 +367,7 @@ body {
 .file-label-container {
   flex: 1;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   overflow: hidden;
   white-space: nowrap;
@@ -444,34 +466,54 @@ body {
 .match-list {
   display: flex;
   flex-direction: column;
-  padding-left: 14px;
+  padding-left: 0;
 }
 
 .match-list.hidden {
   display: none;
 }
 
-/* 個別マッチ行アイテム */
+/* 個別マッチ行アイテム (VS Code 標準ツリー行デザイン完全準拠) */
 .match-item {
   display: flex;
-  align-items: baseline;
-  padding: 1px 4px;
-  cursor: pointer;
-  border-radius: 2px;
+  align-items: center;
+  height: 22px;
+  line-height: 22px;
+  padding: 0 4px 0 20px;
+  cursor: default;
+  border-radius: 0;
   font-family: var(--search-font-family);
   font-size: var(--search-font-size);
-  gap: 6px;
+  gap: 8px;
   overflow: hidden;
   outline: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .match-item:hover {
   background-color: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
+  color: var(--vscode-list-hoverForeground, inherit);
 }
 
-.match-item.selected,
-.match-item:focus,
-.match-item:active {
+.match-item:hover .match-preview {
+  color: var(--vscode-list-hoverForeground, var(--search-text-color));
+}
+
+.match-item:hover .match-position {
+  color: var(--vscode-list-hoverForeground, var(--search-secondary-color));
+  opacity: 0.9;
+}
+
+.match-item.selected {
+  background-color: var(--vscode-list-inactiveSelectionBackground, rgba(255, 255, 255, 0.08));
+  color: var(--vscode-list-inactiveSelectionForeground, inherit);
+  outline: 1px dotted var(--vscode-list-focusOutline, transparent);
+  outline-offset: -1px;
+}
+
+.results-container:focus-within .match-item.selected,
+.match-item:focus {
   background-color: var(--vscode-list-activeSelectionBackground, #094771);
   color: var(--vscode-list-activeSelectionForeground, #ffffff);
   outline: 1px solid var(--vscode-list-focusOutline, #007acc);
@@ -482,7 +524,7 @@ body {
 .match-item.selected .match-preview,
 .match-item:focus .match-position,
 .match-item:focus .match-preview {
-  color: var(--vscode-list-activeSelectionForeground, #ffffff);
+  color: inherit;
 }
 
 /* 行番号バッジ (行番号のみ表示・幅コンパクト) */

@@ -51,7 +51,7 @@
   }
 
   /**
-   * 入力履歴管理クラス (VS Code 標準ライクな上下キーナビゲーション & 自動検索連動)
+   * 入力履歴管理クラス (VS Code 標準ライクな上下キーナビゲーション & 全選択 & サクサク切替)
    */
   class HistoryNavigator {
     /**
@@ -69,18 +69,26 @@
       this.onNavigate = onNavigate;
 
       this.inputElement.addEventListener('keydown', (e) => {
-        // Shift, Ctrl, Alt が押されていない単独の上下キーで履歴遷移
+        // Shift, Ctrl, Alt, Meta が押されていない単独の上下キーで履歴遷移
         if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
           if (e.key === 'ArrowUp') {
-            this.navigateUp(e);
+            if (this.canNavigateUp()) {
+              this.navigateUp(e);
+            }
           } else if (e.key === 'ArrowDown') {
-            this.navigateDown(e);
+            if (this.canNavigateDown()) {
+              this.navigateDown(e);
+            }
           }
         }
       });
 
       this.inputElement.addEventListener('input', () => {
         if (this.historyIndex === -1) {
+          this.tempValue = this.inputElement.value;
+        } else {
+          // 履歴から選んだあとに編集した場合は最新入力として stash 更新
+          this.historyIndex = -1;
           this.tempValue = this.inputElement.value;
         }
         if (this.inputElement === searchInput) {
@@ -90,13 +98,44 @@
     }
 
     /**
-     * カーソルをテキスト末尾に移動し、必要なら高さを再計算
+     * 上キーで履歴遷移可能かを判定 (VS Code 標準準拠: 単一行または先頭行/全選択時)
      */
-    setCursorToEnd() {
-      const len = this.inputElement.value.length;
-      this.inputElement.setSelectionRange(len, len);
+    canNavigateUp() {
+      if (this.history.length === 0) return false;
+      const el = this.inputElement;
+      // 全選択されている場合、またはカーソルが先頭にある場合は常に履歴遷移
+      if (el.selectionStart === 0 && el.selectionEnd === el.value.length) return true;
+      if (el.selectionStart === 0 && el.selectionEnd === 0) return true;
+      // 単一行 (改行なし) の場合はどこにカーソルがあっても遷移可能
+      if (!el.value.includes('\n')) return true;
+      return false;
+    }
+
+    /**
+     * 下キーで履歴遷移可能かを判定 (VS Code 標準準拠: 単一行または末尾行/全選択時)
+     */
+    canNavigateDown() {
+      if (this.historyIndex === -1) return false;
+      const el = this.inputElement;
+      if (el.selectionStart === 0 && el.selectionEnd === el.value.length) return true;
+      if (el.selectionStart === el.value.length && el.selectionEnd === el.value.length) return true;
+      if (!el.value.includes('\n')) return true;
+      return false;
+    }
+
+    /**
+     * テキストを反映し、VS Code 標準同様に全選択状態にする (余計な自動検索は走らせない)
+     * @param {string} val
+     */
+    applyValue(val) {
+      this.inputElement.value = val;
       if (this.inputElement === searchInput) {
         adjustSearchInputHeight();
+      }
+      // VS Code 標準: 履歴移動時はテキストを全選択状態にする
+      this.inputElement.select();
+      if (this.onNavigate) {
+        this.onNavigate(val);
       }
     }
 
@@ -112,17 +151,13 @@
       }
       if (this.historyIndex < this.history.length - 1) {
         this.historyIndex++;
-        this.inputElement.value = this.history[this.historyIndex];
-        this.setCursorToEnd();
-        if (this.onNavigate) {
-          this.onNavigate(this.inputElement.value);
-        }
+        this.applyValue(this.history[this.historyIndex]);
       }
     }
 
     /**
      * 下キーで新しい履歴へ移動
-     * VS Code 標準準拠: 最新の履歴からさらに下を押すと空欄 (未入力状態) に戻る
+     * VS Code 標準準拠: 最新の履歴からさらに下を押すと入力途中の値 (stash) に戻る
      * @param {KeyboardEvent} e
      */
     navigateDown(e) {
@@ -130,19 +165,11 @@
       e.preventDefault();
       if (this.historyIndex > 0) {
         this.historyIndex--;
-        this.inputElement.value = this.history[this.historyIndex];
-        this.setCursorToEnd();
-        if (this.onNavigate) {
-          this.onNavigate(this.inputElement.value);
-        }
+        this.applyValue(this.history[this.historyIndex]);
       } else if (this.historyIndex === 0) {
-        // 最新履歴からさらに下を押した場合は確実に空欄に戻す
+        // 最新履歴からさらに下を押した場合は、入力途中だった値 (tempValue) に確実に復元
         this.historyIndex = -1;
-        this.inputElement.value = '';
-        this.setCursorToEnd();
-        if (this.onNavigate) {
-          this.onNavigate('');
-        }
+        this.applyValue(this.tempValue || '');
       }
     }
 
@@ -341,14 +368,14 @@
     });
   }
 
-  // 履歴ナビゲーターの初期化 (上下キー移動時はデバウンス検索連動で素早いキー入力時も快適)
+  // 履歴ナビゲーターの初期化 (VS Code 標準準拠: 上下キー移動時はテキスト全選択のみ行い、サクサク切り替える)
   const searchHistoryNav = new HistoryNavigator(
     searchInput,
     previousState.searchHistory && previousState.searchHistory.length > 0
       ? previousState.searchHistory
       : (initialHistory.searchHistory || []),
     saveState,
-    () => scheduleSearch(500)
+    saveState
   );
   const includeHistoryNav = new HistoryNavigator(
     includeInput,
@@ -356,7 +383,7 @@
       ? previousState.includeHistory
       : (initialHistory.includeHistory || []),
     saveState,
-    () => scheduleSearch(500)
+    saveState
   );
   const excludeHistoryNav = new HistoryNavigator(
     excludeInput,
@@ -364,7 +391,7 @@
       ? previousState.excludeHistory
       : (initialHistory.excludeHistory || []),
     saveState,
-    () => scheduleSearch(500)
+    saveState
   );
 
   // トグルボタンのイベントハンドラ
@@ -733,7 +760,7 @@
   let selectedItem = null;
 
   /**
-   * アイテムを選択状態にする
+   * アイテムを選択状態にする (VS Code 標準準拠: 検索入力欄のフォーカスを確実に解除し、選択アイテムにフォーカス)
    * @param {HTMLElement | null} element
    * @param {boolean} [shouldFocus=true]
    */
@@ -745,7 +772,11 @@
     if (selectedItem) {
       selectedItem.classList.add('selected');
       if (shouldFocus) {
-        selectedItem.focus();
+        // 検索入力欄・詳細入力欄のフォーカスを確実に解除 (ペースト等の誤爆を完全防止)
+        searchInput.blur();
+        includeInput.blur();
+        excludeInput.blur();
+        element.focus({ preventScroll: true });
       }
       selectedItem.scrollIntoView({ block: 'nearest' });
     }
@@ -772,6 +803,38 @@
     }
     return items;
   }
+
+  /**
+   * 結果一覧コンテナでのペースト操作防止 (検索入力欄への誤爆を完全防止)
+   */
+  resultsContainer.addEventListener('paste', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  /**
+   * 結果一覧コンテナでのコピー操作 (VS Code 標準準拠: 選択中の一致行テキストまたはファイルパスをクリップボードにコピー)
+   */
+  resultsContainer.addEventListener('copy', (e) => {
+    if (!selectedItem) return;
+    // @ts-ignore
+    if (selectedItem.classList.contains('match-item') && selectedItem._match) {
+      // @ts-ignore
+      const lineText = selectedItem._match.lineText;
+      if (lineText) {
+        e.clipboardData?.setData('text/plain', lineText);
+        e.preventDefault();
+      }
+    } else if (selectedItem.classList.contains('file-header')) {
+      // @ts-ignore
+      const file = selectedItem._file;
+      const pathText = file ? (file.relativePath || file.filePath) : '';
+      if (pathText) {
+        e.clipboardData?.setData('text/plain', pathText);
+        e.preventDefault();
+      }
+    }
+  });
 
   /**
    * 結果一覧コンテナでのキーボード操作 (上下キー移動・Enterで開く・左右キー開閉)
@@ -824,7 +887,7 @@
       } else if (currentIndex === 0) {
         // 先頭で上キーを押した場合は検索入力欄へフォーカス移動 (VS Code 標準導線)
         searchInput.focus();
-        searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+        searchInput.select();
       }
     } else if (e.key === 'Enter') {
       if (selectedItem) {

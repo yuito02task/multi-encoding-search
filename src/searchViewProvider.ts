@@ -543,11 +543,6 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           new vscode.Position(targetLine, endCol)
         );
         activeEditor.revealRange(selectionRange, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-
-        // フォーカス維持が要求されている場合、WebviewView のフォーカスを維持
-        if (preserveFocus && this.view) {
-          this.view.show?.(true);
-        }
       }
     } catch (error: any) {
       const errMsg = vscode.l10n.t('Failed to open file: {0} ({1})', filePath, error?.message || error);
@@ -690,7 +685,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       <!-- 検索入力行 -->
       <div class="search-input-wrapper">
         <div class="input-box-container">
-          <textarea id="searchInput" class="search-input" rows="1" placeholder="${i18n.searchPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+          <textarea id="searchInput" class="search-input" rows="1" style="height: 24px;" placeholder="${i18n.searchPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
           <div class="input-actions">
             <button id="btnCaseSensitive" class="icon-toggle-btn" title="${i18n.matchCase}">
               <span class="toggle-icon">Aa</span>
