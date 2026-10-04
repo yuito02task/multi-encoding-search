@@ -290,13 +290,11 @@ body {
   margin-bottom: 2px;
 }
 
-/* ファイルヘッダー (VS Code 標準ツリーデザイン完全準拠) */
+/* ファイルヘッダー (コンパクト表示 & ホバー・選択対応) */
 .file-header {
   display: flex;
   align-items: center;
-  height: 22px;
-  line-height: 22px;
-  padding: 0 4px;
+  padding: 2px 4px;
   cursor: default;
   border-radius: 0;
   gap: 4px;
@@ -473,18 +471,16 @@ body {
   display: none;
 }
 
-/* 個別マッチ行アイテム (VS Code 標準ツリー行デザイン完全準拠) */
+/* 個別マッチ行アイテム (コンパクト行間表示 & ホバー・選択対応) */
 .match-item {
   display: flex;
-  align-items: center;
-  height: 22px;
-  line-height: 22px;
-  padding: 0 4px 0 20px;
+  align-items: baseline;
+  padding: 1px 4px 1px 20px;
   cursor: default;
   border-radius: 0;
   font-family: var(--search-font-family);
   font-size: var(--search-font-size);
-  gap: 8px;
+  gap: 6px;
   overflow: hidden;
   outline: none;
   width: 100%;
