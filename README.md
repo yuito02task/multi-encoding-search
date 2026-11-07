@@ -29,6 +29,8 @@ VS Code 標準のワークスペース検索は単一のエンコーディング
    - **検索履歴**: 上下キーで過去の検索条件を素早く呼び出し（VS Code 再起動後も永続保持）。
    - **詳細検索**: 「開いているエディターでのみ検索」「除外設定（.gitignore等）を使用してファイルを無視」ボタンを標準搭載（開閉状態もエディタ再起動後まで保持）。
    - **複数行検索**: `Shift + Enter` や貼り付けによる複数行テキストの検索、入力量に応じた入力欄の縦幅自動伸縮に対応。
+   - **PCRE2 正規表現サポート**: 先読み・後読み（例: `(?<!::)number_format\(`）や後方参照を含む正規表現検索に対応。
+   - **ビューヘッダーツールバー & ショートカット**: 「最新の情報に更新」「検索結果のクリア」「ツリーとして表示 / リストとして表示」「新しい検索エディターを開く」「すべて折りたたんで表示します。 / すべて展開」ボタンを標準搭載。タブを開くショートカット（既定: `Ctrl+Shift+Alt+F` / `Cmd+Shift+Alt+F`）およびツールチップでのショートカット併記に対応。
 
 3. **設定不要で即座に動作 (Zero Configuration)**
    - VS Code 内蔵の ripgrep を自動検出するため、Windows、WSL（Remote）、macOS、Linux で追加のインストールや設定を行わずに即座に動作します。
@@ -54,6 +56,8 @@ In VS Code, workspace search relies on a single global encoding (`files.encoding
    - **Search History**: Instant navigation of past queries with Up/Down arrow keys, persisted across VS Code restarts.
    - **Search Details**: Standard include/exclude filters with "Search only in Open Editors" and "Use Exclude Settings and Ignore Files" toggles. Expanded/collapsed state persists across sessions.
    - **Multi-line Query Support**: Supports multi-line input via `Shift + Enter` or pasting, with auto-growing textarea and line wrapping.
+   - **PCRE2 Regular Expressions**: Full support for look-ahead, look-behind (e.g., `(?<!::)number_format\(`), and backreferences via ripgrep `--pcre2`.
+   - **Native View Toolbar Actions & Keybinding**: Built-in header actions for Refresh, Clear Search Results, View as Tree / View as List, Open New Search Editor, and Collapse All / Expand All, plus configurable view shortcut (`Ctrl+Shift+Alt+F` / `Cmd+Shift+Alt+F` by default) displayed in the view tooltip.
 
 3. **Zero Configuration**
    - Automatically discovers the bundled ripgrep binary across Windows, WSL, macOS, and Linux without manual PATH setup.

@@ -2,7 +2,7 @@
   "name": "multi-encoding-search",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "publisher": "yuitomaruyama",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -77,6 +77,102 @@
         }
       ]
     },
+    "commands": [
+      {
+        "command": "multiEncodingSearch.refresh",
+        "title": "%command.refresh.title%",
+        "category": "%viewsContainers.multiEncodingSearch.title%",
+        "icon": "$(refresh)",
+        "enablement": "multiEncodingSearch.hasSearchPattern"
+      },
+      {
+        "command": "multiEncodingSearch.clearSearchResults",
+        "title": "%command.clearSearchResults.title%",
+        "category": "%viewsContainers.multiEncodingSearch.title%",
+        "icon": "$(clear-all)",
+        "enablement": "multiEncodingSearch.hasSearchResults || multiEncodingSearch.hasSearchPattern"
+      },
+      {
+        "command": "multiEncodingSearch.viewAsTree",
+        "title": "%command.viewAsTree.title%",
+        "category": "%viewsContainers.multiEncodingSearch.title%",
+        "icon": "$(list-tree)",
+        "enablement": "multiEncodingSearch.hasSearchResults"
+      },
+      {
+        "command": "multiEncodingSearch.viewAsList",
+        "title": "%command.viewAsList.title%",
+        "category": "%viewsContainers.multiEncodingSearch.title%",
+        "icon": "$(list-flat)",
+        "enablement": "multiEncodingSearch.hasSearchResults"
+      },
+      {
+        "command": "multiEncodingSearch.openNewSearchEditor",
+        "title": "%command.openNewSearchEditor.title%",
+        "category": "%viewsContainers.multiEncodingSearch.title%",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "multiEncodingSearch.collapseAll",
+        "title": "%command.collapseAll.title%",
+        "category": "%viewsContainers.multiEncodingSearch.title%",
+        "icon": "$(collapse-all)",
+        "enablement": "multiEncodingSearch.hasSearchResults"
+      },
+      {
+        "command": "multiEncodingSearch.expandAll",
+        "title": "%command.expandAll.title%",
+        "category": "%viewsContainers.multiEncodingSearch.title%",
+        "icon": "$(expand-all)",
+        "enablement": "multiEncodingSearch.hasSearchResults"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "multiEncodingSearch.refresh",
+          "when": "view == multiEncodingSearch.searchView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "multiEncodingSearch.clearSearchResults",
+          "when": "view == multiEncodingSearch.searchView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "multiEncodingSearch.viewAsTree",
+          "when": "view == multiEncodingSearch.searchView && !multiEncodingSearch.isTreeMode",
+          "group": "navigation@3"
+        },
+        {
+          "command": "multiEncodingSearch.viewAsList",
+          "when": "view == multiEncodingSearch.searchView && multiEncodingSearch.isTreeMode",
+          "group": "navigation@3"
+        },
+        {
+          "command": "multiEncodingSearch.openNewSearchEditor",
+          "when": "view == multiEncodingSearch.searchView",
+          "group": "navigation@4"
+        },
+        {
+          "command": "multiEncodingSearch.collapseAll",
+          "when": "view == multiEncodingSearch.searchView && !multiEncodingSearch.allCollapsed",
+          "group": "navigation@5"
+        },
+        {
+          "command": "multiEncodingSearch.expandAll",
+          "when": "view == multiEncodingSearch.searchView && multiEncodingSearch.allCollapsed",
+          "group": "navigation@5"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "workbench.view.extension.multi-encoding-search-container",
+        "key": "ctrl+shift+alt+f",
+        "mac": "cmd+shift+alt+f"
+      }
+    ],
     "configuration": {
       "title": "%config.title%",
       "properties": {

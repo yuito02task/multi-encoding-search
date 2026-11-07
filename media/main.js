@@ -11,8 +11,8 @@
   const i18n = window.i18nStrings || {
     searchPlaceholderBlur: '検索',
     searchPlaceholderFocus: '検索 (履歴の⇅)',
-    filesToIncludePlaceholder: '例: *.ts, src/**',
-    filesToExcludePlaceholder: '例: node_modules/**, vendor/**',
+    patternPlaceholderBlur: '例: *.ts, **/node_modules',
+    patternPlaceholderFocus: '例: *.ts, **/node_modules (履歴の⇅)',
     searching: '検索中...',
     noResults: '一致する結果は見つかりませんでした。',
     resultsTruncated: ' (上限10,000件に達したため一部のみ表示)',
@@ -68,7 +68,7 @@
       this.onSaveState = onSaveState;
       this.onNavigate = onNavigate;
 
-      this.inputElement.addEventListener('keydown', (e) => {
+      this.inputElement.addEventListener('keydown', (/** @type {KeyboardEvent} */ e) => {
         // Shift, Ctrl, Alt, Meta が押されていない単独の上下キーで履歴遷移
         if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
           if (e.key === 'ArrowUp') {
@@ -198,8 +198,16 @@
   }
 
   // DOM キャッシュ: ファイルごとの要素情報を管理 (差分レンダリング用)
-  /** @type {Map<string, { container: HTMLElement, matchList: HTMLElement, encTag: HTMLElement, badge: HTMLElement, matchElements: Map<number, HTMLElement>, renderedCount: number }>} */
+  /** @type {Map<string, { container: HTMLElement, header: HTMLElement, matchList: HTMLElement, toggleIcon: HTMLElement, dirSpan: HTMLElement | null, encTag: HTMLElement, badge: HTMLElement, matchElements: Map<string, HTMLElement>, renderedCount: number }>} */
   const fileDomMap = new Map();
+
+  // 現在保持している最新の検索結果配列 (ツリー/リスト表示切替用)
+  /** @type {Array<any>} */
+  let currentFileResults = [];
+
+  // 手動で折りたたまれた項目パス (ファイルパスまたはフォルダパス) のセット
+  /** @type {Set<string>} */
+  const collapsedPaths = new Set();
 
   // 検索状態の管理
   let isSearching = false;
@@ -317,6 +325,7 @@
   }
 
   // 詳細検索オプションの開閉状態の復元 (前回の状態または初期HTMLの反映)
+  // ※ VS Code 標準準拠: 詳細検索が開いていても三点リーダーボタンは強調表示 (.active) しない
   // @ts-ignore
   let isDetailsExpanded = previousState.isDetailsExpanded !== undefined
     ? !!previousState.isDetailsExpanded
@@ -324,7 +333,13 @@
     : (window.initialDetailsExpanded !== undefined ? !!window.initialDetailsExpanded : false);
 
   detailsContainer.classList.toggle('hidden', !isDetailsExpanded);
-  btnToggleDetails.classList.toggle('active', isDetailsExpanded);
+
+  // ツリー表示 / リスト表示モードの復元
+  // @ts-ignore
+  let isTreeMode = previousState.isTreeMode !== undefined
+    ? !!previousState.isTreeMode
+    // @ts-ignore
+    : (window.initialTreeMode !== undefined ? !!window.initialTreeMode : false);
 
   // 新規トグルオプション: 開いているエディターでのみ検索 / 除外設定を使用してファイルを無視
   let onlyOpenEditors = !!previousState.onlyOpenEditors;
@@ -336,6 +351,41 @@
   if (btnUseExcludeSettings) {
     btnUseExcludeSettings.classList.toggle('active', useExcludeSettings);
   }
+
+  /**
+   * 拡張機能ホスト側のコンテキストキー (タイトルバーのボタン有効化・アイコン切替) を同期する
+   */
+  function syncContextKeys() {
+    const hasPattern = searchInput.value.trim().length > 0 || includeInput.value.trim().length > 0 || excludeInput.value.trim().length > 0;
+    const hasResults = currentFileResults.length > 0;
+
+    // 現在表示されている折りたたみ対象のうち、展開されているものが1つでもあるか確認
+    let allCollapsed = false;
+    if (hasResults) {
+      const expandableLists = resultsContainer.querySelectorAll('.folder-children, .match-list');
+      if (expandableLists.length > 0) {
+        let anyExpanded = false;
+        for (const list of expandableLists) {
+          if (!list.classList.contains('hidden')) {
+            anyExpanded = true;
+            break;
+          }
+        }
+        allCollapsed = !anyExpanded;
+      }
+    }
+
+    vscode.postMessage({
+      command: 'updateContextState',
+      hasSearchPattern: searchInput.value.trim().length > 0,
+      hasSearchResults: hasResults || hasPattern,
+      allCollapsed,
+      isTreeMode
+    });
+  }
+
+  // 初期コンテキスト状態の通知
+  setTimeout(syncContextKeys, 0);
 
   // 状態の保存 (Webview ステートおよび VS Code 本体の globalState 永続化)
   function saveState() {
@@ -354,6 +404,7 @@
       onlyOpenEditors,
       useExcludeSettings,
       isDetailsExpanded,
+      isTreeMode,
       searchHistory: searchHist,
       includeHistory: includeHist,
       excludeHistory: excludeHist
@@ -468,11 +519,10 @@
     });
   }
 
-  // 詳細オプションの開閉 (三点リーダーボタン)
+  // 詳細オプションの開閉 (三点リーダーボタン: VS Code 標準と同様にボタン自体は強調表示しない)
   btnToggleDetails.addEventListener('click', () => {
     isDetailsExpanded = !isDetailsExpanded;
     detailsContainer.classList.toggle('hidden', !isDetailsExpanded);
-    btnToggleDetails.classList.toggle('active', isDetailsExpanded);
     saveState();
     vscode.postMessage({
       command: 'saveDetailsExpanded',
@@ -480,26 +530,36 @@
     });
   });
 
-  // placeholder の動的制御 (VS Code 標準準拠)
+  // placeholder およびツールチップ (title) の動的制御 (VS Code 標準の InputBox + HistoryInputBox 仕様に完全準拠)
   searchInput.addEventListener('focus', () => {
-    searchInput.placeholder = i18n.searchPlaceholderFocus || '検索 (履歴の⇅)';
+    const focusText = i18n.searchPlaceholderFocus || '検索 (履歴の⇅)';
+    searchInput.placeholder = focusText;
+    searchInput.title = focusText;
   });
   searchInput.addEventListener('blur', () => {
-    searchInput.placeholder = i18n.searchPlaceholderBlur || '検索';
+    const blurText = i18n.searchPlaceholderBlur || '検索';
+    searchInput.placeholder = blurText;
+    searchInput.title = blurText;
   });
 
   includeInput.addEventListener('focus', () => {
-    includeInput.placeholder = i18n.filesToIncludePlaceholder || '例: *.ts, src/**';
+    const focusText = i18n.patternPlaceholderFocus || '例: *.ts, **/node_modules (履歴の⇅)';
+    includeInput.placeholder = focusText;
+    includeInput.title = focusText;
   });
   includeInput.addEventListener('blur', () => {
     includeInput.placeholder = '';
+    includeInput.title = i18n.patternPlaceholderBlur || '例: *.ts, **/node_modules';
   });
 
   excludeInput.addEventListener('focus', () => {
-    excludeInput.placeholder = i18n.filesToExcludePlaceholder || '例: node_modules/**, vendor/**';
+    const focusText = i18n.patternPlaceholderFocus || '例: *.ts, **/node_modules (履歴の⇅)';
+    excludeInput.placeholder = focusText;
+    excludeInput.title = focusText;
   });
   excludeInput.addEventListener('blur', () => {
     excludeInput.placeholder = '';
+    excludeInput.title = i18n.patternPlaceholderBlur || '例: *.ts, **/node_modules';
   });
 
   /**
@@ -579,17 +639,24 @@
     });
   }
 
-  // 入力イベントで自動デバウンス検索 & 高さ自動調整
+  // 入力イベントで自動デバウンス検索 & 高さ自動調整 & コンテキスト同期
   searchInput.addEventListener('input', () => {
     adjustSearchInputHeight();
+    syncContextKeys();
     scheduleSearch(500);
   });
   searchInput.addEventListener('paste', () => {
     setTimeout(adjustSearchInputHeight, 0);
   });
 
-  includeInput.addEventListener('input', () => scheduleSearch(500));
-  excludeInput.addEventListener('input', () => scheduleSearch(500));
+  includeInput.addEventListener('input', () => {
+    syncContextKeys();
+    scheduleSearch(500);
+  });
+  excludeInput.addEventListener('input', () => {
+    syncContextKeys();
+    scheduleSearch(500);
+  });
 
   // Enter キー押下時の挙動 (VS Code 標準準拠: Shift+Enter で改行、Enter 単体で即時検索)
   searchInput.addEventListener('keydown', (e) => {
@@ -624,7 +691,62 @@
   function clearResults() {
     resultsContainer.innerHTML = '';
     fileDomMap.clear();
+    currentFileResults = [];
+    collapsedPaths.clear();
     selectedItem = null;
+    syncContextKeys();
+  }
+
+  /**
+   * 現在の結果全体をすべて折りたたむ
+   */
+  function collapseAllResults() {
+    const folders = resultsContainer.querySelectorAll('.folder-group');
+    for (const fg of folders) {
+      const folderPath = fg.getAttribute('data-folder-path');
+      if (folderPath) collapsedPaths.add(`folder:${folderPath}`);
+      const children = fg.querySelector(':scope > .folder-children');
+      const icon = fg.querySelector(':scope > .folder-header .file-toggle-icon');
+      children?.classList.add('hidden');
+      icon?.classList.remove('expanded');
+    }
+
+    const files = resultsContainer.querySelectorAll('.file-group');
+    for (const fileGroup of files) {
+      const filePath = fileGroup.getAttribute('data-file-path');
+      if (filePath) collapsedPaths.add(`file:${filePath}`);
+      const matchList = fileGroup.querySelector(':scope > .match-list');
+      const icon = fileGroup.querySelector(':scope > .file-header .file-toggle-icon');
+      matchList?.classList.add('hidden');
+      icon?.classList.remove('expanded');
+    }
+
+    syncContextKeys();
+  }
+
+  /**
+   * 現在の結果全体をすべて展開する
+   */
+  function expandAllResults() {
+    collapsedPaths.clear();
+
+    const folders = resultsContainer.querySelectorAll('.folder-group');
+    for (const fg of folders) {
+      const children = fg.querySelector(':scope > .folder-children');
+      const icon = fg.querySelector(':scope > .folder-header .file-toggle-icon');
+      children?.classList.remove('hidden');
+      icon?.classList.add('expanded');
+    }
+
+    const files = resultsContainer.querySelectorAll('.file-group');
+    for (const fileGroup of files) {
+      const matchList = fileGroup.querySelector(':scope > .match-list');
+      const icon = fileGroup.querySelector(':scope > .file-header .file-toggle-icon');
+      matchList?.classList.remove('hidden');
+      icon?.classList.add('expanded');
+    }
+
+    syncContextKeys();
   }
 
   /**
@@ -657,6 +779,73 @@
         applySettings(message.settings);
         break;
 
+      case 'focusSearchInput':
+        if (message.initialQuery && message.initialQuery.trim()) {
+          searchInput.value = message.initialQuery;
+          adjustSearchInputHeight();
+          executeSearch(true);
+        }
+        searchInput.focus();
+        searchInput.select();
+        break;
+
+      case 'triggerRefresh':
+        if (searchInput.value.trim()) {
+          executeSearch(false);
+        }
+        break;
+
+      case 'triggerClearAll':
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
+        }
+        isSearching = false;
+        searchInput.value = '';
+        includeInput.value = '';
+        excludeInput.value = '';
+        adjustSearchInputHeight();
+        clearResults();
+        statusContainer.textContent = '';
+        statusContainer.className = 'status-container';
+        saveState();
+        syncContextKeys();
+        break;
+
+      case 'triggerSetViewMode':
+        isTreeMode = !!message.isTreeMode;
+        saveState();
+        if (currentFileResults.length > 0) {
+          renderResults(currentFileResults);
+        }
+        syncContextKeys();
+        break;
+
+      case 'triggerCollapseAll':
+        collapseAllResults();
+        break;
+
+      case 'triggerExpandAll':
+        expandAllResults();
+        break;
+
+      case 'triggerOpenSearchEditor':
+        vscode.postMessage({
+          command: 'openSearchEditorWithState',
+          options: {
+            pattern: searchInput.value,
+            isCaseSensitive,
+            isWordMatch,
+            isRegexp: isRegex,
+            includePattern: includeInput.value.trim() || undefined,
+            excludePattern: excludeInput.value.trim() || undefined,
+            onlyOpenEditors,
+            useIgnoreFiles: useExcludeSettings
+          },
+          isDetailsExpanded
+        });
+        break;
+
       case 'searchStart':
         isSearching = true;
         statusContainer.className = 'status-container';
@@ -665,12 +854,13 @@
         break;
 
       case 'searchProgress':
-        // 差分（インクリメンタル）レンダリングで即時ストリーミング表示
-        renderIncrementalResults(message.results);
+        currentFileResults = message.results || [];
+        renderResults(currentFileResults);
         if (message.totalMatches > 0) {
           statusContainer.className = 'status-container';
           statusContainer.innerHTML = `<span class="spinner"></span> <span>${i18n.searching} (${formatMatchCountText(message.totalFiles, message.totalMatches, message.isTruncated)})</span>`;
         }
+        syncContextKeys();
         break;
 
       case 'searchComplete':
@@ -685,18 +875,21 @@
           statusContainer.className = 'status-container';
           statusContainer.textContent = formatMatchCountText(message.totalFiles, message.totalMatches, message.isTruncated);
         }
+        syncContextKeys();
         break;
 
       case 'searchCancelled':
         isSearching = false;
         statusContainer.className = 'status-container';
         statusContainer.textContent = i18n.searchCancelled;
+        syncContextKeys();
         break;
 
       case 'searchError':
         isSearching = false;
         statusContainer.className = 'status-container error';
         statusContainer.textContent = `${message.errorMessage}`;
+        syncContextKeys();
         break;
     }
   });
@@ -768,7 +961,7 @@
     return enc ? enc.toUpperCase() : 'UTF-8';
   }
 
-  // 現在選択中の結果アイテム (マッチ行またはファイルヘッダー)
+  // 現在選択中の結果アイテム (マッチ行・ファイルヘッダー・フォルダヘッダー)
   /** @type {HTMLElement | null} */
   let selectedItem = null;
 
@@ -796,22 +989,16 @@
   }
 
   /**
-   * 現在画面上に表示されている（折りたたまれていない）全アイテムを取得
+   * 現在画面上に表示されている（折りたたまれていない）全アイテムを文書順に取得
    * @returns {HTMLElement[]}
    */
   function getVisibleItems() {
     /** @type {HTMLElement[]} */
     const items = [];
-    const fileGroups = resultsContainer.querySelectorAll('.file-group');
-    for (const group of fileGroups) {
-      const header = /** @type {HTMLElement | null} */ (group.querySelector('.file-header'));
-      if (header) items.push(header);
-      const matchList = group.querySelector('.match-list');
-      if (matchList && !matchList.classList.contains('hidden')) {
-        const matchItems = matchList.querySelectorAll('.match-item');
-        for (const m of matchItems) {
-          items.push(/** @type {HTMLElement} */ (m));
-        }
+    const candidates = resultsContainer.querySelectorAll('.folder-header, .file-header, .match-item');
+    for (const el of candidates) {
+      if (!el.closest('.hidden')) {
+        items.push(/** @type {HTMLElement} */ (el));
       }
     }
     return items;
@@ -826,7 +1013,7 @@
   });
 
   /**
-   * 結果一覧コンテナでのコピー操作 (VS Code 標準準拠: 選択中の一致行テキストまたはファイルパスをクリップボードにコピー)
+   * 結果一覧コンテナでのコピー操作 (VS Code 標準準拠: 選択中の一致行テキストまたはファイル/フォルダパスをクリップボードにコピー)
    */
   resultsContainer.addEventListener('copy', (e) => {
     if (!selectedItem) return;
@@ -844,6 +1031,13 @@
       const pathText = file ? (file.relativePath || file.filePath) : '';
       if (pathText) {
         e.clipboardData?.setData('text/plain', pathText);
+        e.preventDefault();
+      }
+    } else if (selectedItem.classList.contains('folder-header')) {
+      // @ts-ignore
+      const folderPath = selectedItem._folderPath || '';
+      if (folderPath) {
+        e.clipboardData?.setData('text/plain', folderPath);
         e.preventDefault();
       }
     }
@@ -930,35 +1124,81 @@
         }
       }
     } else if (e.key === 'ArrowRight') {
-      // ファイルヘッダーを展開
-      if (selectedItem && selectedItem.classList.contains('file-header')) {
-        const group = selectedItem.closest('.file-group');
-        const matchList = group?.querySelector('.match-list');
-        const toggleIcon = selectedItem.querySelector('.file-toggle-icon');
-        if (matchList && matchList.classList.contains('hidden')) {
-          matchList.classList.remove('hidden');
-          toggleIcon?.classList.add('expanded');
-          e.preventDefault();
+      if (selectedItem) {
+        if (selectedItem.classList.contains('folder-header')) {
+          const group = selectedItem.closest('.folder-group');
+          const children = group?.querySelector(':scope > .folder-children');
+          const toggleIcon = selectedItem.querySelector('.file-toggle-icon');
+          const folderPath = group?.getAttribute('data-folder-path');
+          if (children && children.classList.contains('hidden')) {
+            children.classList.remove('hidden');
+            toggleIcon?.classList.add('expanded');
+            if (folderPath) collapsedPaths.delete(`folder:${folderPath}`);
+            syncContextKeys();
+            e.preventDefault();
+          }
+        } else if (selectedItem.classList.contains('file-header')) {
+          const group = selectedItem.closest('.file-group');
+          const matchList = group?.querySelector(':scope > .match-list');
+          const toggleIcon = selectedItem.querySelector('.file-toggle-icon');
+          const filePath = group?.getAttribute('data-file-path');
+          if (matchList && matchList.classList.contains('hidden')) {
+            matchList.classList.remove('hidden');
+            toggleIcon?.classList.add('expanded');
+            if (filePath) collapsedPaths.delete(`file:${filePath}`);
+            syncContextKeys();
+            e.preventDefault();
+          }
         }
       }
     } else if (e.key === 'ArrowLeft') {
       if (selectedItem) {
-        if (selectedItem.classList.contains('file-header')) {
-          // ファイルヘッダーを折りたたみ
-          const group = selectedItem.closest('.file-group');
-          const matchList = group?.querySelector('.match-list');
+        if (selectedItem.classList.contains('folder-header')) {
+          const group = selectedItem.closest('.folder-group');
+          const children = group?.querySelector(':scope > .folder-children');
           const toggleIcon = selectedItem.querySelector('.file-toggle-icon');
+          const folderPath = group?.getAttribute('data-folder-path');
+          if (children && !children.classList.contains('hidden')) {
+            children.classList.add('hidden');
+            toggleIcon?.classList.remove('expanded');
+            if (folderPath) collapsedPaths.add(`folder:${folderPath}`);
+            syncContextKeys();
+            e.preventDefault();
+          } else {
+            // 既に折りたたまれている場合は親フォルダヘッダーへ移動
+            const parentFolder = group?.parentElement?.closest('.folder-group');
+            const parentHeader = /** @type {HTMLElement | null} */ (parentFolder?.querySelector(':scope > .folder-header'));
+            if (parentHeader) {
+              selectItem(parentHeader, true);
+              e.preventDefault();
+            }
+          }
+        } else if (selectedItem.classList.contains('file-header')) {
+          const group = selectedItem.closest('.file-group');
+          const matchList = group?.querySelector(':scope > .match-list');
+          const toggleIcon = selectedItem.querySelector('.file-toggle-icon');
+          const filePath = group?.getAttribute('data-file-path');
           if (matchList && !matchList.classList.contains('hidden')) {
             matchList.classList.add('hidden');
             toggleIcon?.classList.remove('expanded');
+            if (filePath) collapsedPaths.add(`file:${filePath}`);
+            syncContextKeys();
             e.preventDefault();
+          } else {
+            // 既に折りたたまれている場合、ツリー表示なら親フォルダヘッダーへ移動
+            const parentFolder = group?.closest('.folder-group');
+            const parentHeader = /** @type {HTMLElement | null} */ (parentFolder?.querySelector(':scope > .folder-header'));
+            if (parentHeader) {
+              selectItem(parentHeader, true);
+              e.preventDefault();
+            }
           }
         } else if (selectedItem.classList.contains('match-item')) {
           // マッチ行なら親のファイルヘッダーへ移動
           const group = selectedItem.closest('.file-group');
-          const header = /** @type {HTMLElement | null} */ (group?.querySelector('.file-header'));
+          const header = /** @type {HTMLElement | null} */ (group?.querySelector(':scope > .file-header'));
           if (header) {
-            selectItem(header);
+            selectItem(header, true);
             e.preventDefault();
           }
         }
@@ -1032,153 +1272,363 @@
   }
 
   /**
-   * 検索結果のインクリメンタル（差分）レンダリング & DOMソート順の厳密同期
-   * 高速化のため、新規要素のみを作成し、既存行の文字コード改善時はピンポイント更新を行う。
-   * さらに渡されたソート済み配列 (fileResults) の順序に合わせて DOM 要素を正しく再整列する。
-   * @param {Array<any>} fileResults
+   * ファイルグループの DOM 要素を取得または更新して返す (リスト表示・ツリー表示共通)
+   * @param {any} file
+   * @param {number} depth ツリー表示時のネスト深さ (リスト表示時は 0)
+   * @param {boolean} hideDirPath ツリー表示時はディレクトリパス表記を非表示にする
    */
-  function renderIncrementalResults(fileResults) {
-    for (const file of fileResults) {
-      let fileDom = fileDomMap.get(file.filePath);
+  function getOrUpdateFileGroupDom(file, depth = 0, hideDirPath = false) {
+    let fileDom = fileDomMap.get(file.filePath);
+    const isFileCollapsed = collapsedPaths.has(`file:${file.filePath}`);
 
-      if (!fileDom) {
-        // 新規ファイルグループ要素の作成
-        const fileGroup = document.createElement('div');
-        fileGroup.className = 'file-group';
+    if (!fileDom) {
+      const fileGroup = document.createElement('div');
+      fileGroup.className = 'file-group';
+      fileGroup.setAttribute('data-file-path', file.filePath);
 
-        const fileHeader = document.createElement('div');
-        fileHeader.className = 'file-header';
-        fileHeader.tabIndex = 0;
-        fileHeader.title = file.filePath;
+      const fileHeader = document.createElement('div');
+      fileHeader.className = 'file-header';
+      fileHeader.tabIndex = 0;
+      fileHeader.title = file.filePath;
+      // @ts-ignore
+      fileHeader._file = file;
 
-        const toggleIcon = document.createElement('span');
-        toggleIcon.className = 'file-toggle-icon expanded';
-        toggleIcon.textContent = '▸';
+      const toggleIcon = document.createElement('span');
+      toggleIcon.className = `file-toggle-icon ${isFileCollapsed ? '' : 'expanded'}`;
+      toggleIcon.textContent = '▸';
 
-        fileHeader.appendChild(toggleIcon);
+      fileHeader.appendChild(toggleIcon);
 
-        // ファイル拡張子アイコン
-        if (file.iconUri) {
-          const iconImg = document.createElement('img');
-          iconImg.className = 'file-icon';
-          iconImg.src = file.iconUri;
-          iconImg.alt = '';
-          fileHeader.appendChild(iconImg);
+      if (file.iconUri) {
+        const iconImg = document.createElement('img');
+        iconImg.className = 'file-icon';
+        iconImg.src = file.iconUri;
+        iconImg.alt = '';
+        fileHeader.appendChild(iconImg);
+      }
+
+      const labelContainer = document.createElement('div');
+      labelContainer.className = 'file-label-container';
+
+      const fileNameSpan = document.createElement('span');
+      fileNameSpan.className = 'file-name';
+      fileNameSpan.textContent = file.fileName || file.relativePath;
+      labelContainer.appendChild(fileNameSpan);
+
+      /** @type {HTMLElement | null} */
+      let dirSpan = null;
+      if (file.dirPath && file.dirPath.length > 0) {
+        dirSpan = document.createElement('span');
+        dirSpan.className = 'file-dir';
+        dirSpan.textContent = file.dirPath;
+        labelContainer.appendChild(dirSpan);
+      }
+
+      const encTag = document.createElement('span');
+      const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'utf-8';
+      encTag.className = `encoding-tag ${primaryEnc}`;
+      encTag.textContent = formatEncodingName(primaryEnc);
+
+      const badge = document.createElement('span');
+      badge.className = 'match-count-badge';
+      badge.textContent = file.matches.length.toString();
+
+      fileHeader.appendChild(labelContainer);
+      fileHeader.appendChild(encTag);
+      fileHeader.appendChild(badge);
+
+      const matchList = document.createElement('div');
+      matchList.className = `match-list ${isFileCollapsed ? 'hidden' : ''}`;
+
+      fileHeader.addEventListener('click', () => {
+        selectItem(fileHeader, true);
+        const isHidden = matchList.classList.toggle('hidden');
+        toggleIcon.classList.toggle('expanded', !isHidden);
+        if (isHidden) {
+          collapsedPaths.add(`file:${file.filePath}`);
+        } else {
+          collapsedPaths.delete(`file:${file.filePath}`);
         }
+        syncContextKeys();
+      });
 
-        // VS Code 標準ライクな「ファイル名 (メイン)」＋「ディレクトリパス (サブ)」のコンテナ
-        const labelContainer = document.createElement('div');
-        labelContainer.className = 'file-label-container';
+      const matchElements = new Map();
+      for (let i = 0; i < file.matches.length; i++) {
+        const match = file.matches[i];
+        const matchElem = createMatchItemElement(file, match);
+        matchList.appendChild(matchElem);
+        const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
+        matchElements.set(matchKey, matchElem);
+      }
 
-        const fileNameSpan = document.createElement('span');
-        fileNameSpan.className = 'file-name';
-        fileNameSpan.textContent = file.fileName || file.relativePath;
+      fileGroup.appendChild(fileHeader);
+      fileGroup.appendChild(matchList);
 
-        labelContainer.appendChild(fileNameSpan);
+      fileDom = {
+        container: fileGroup,
+        header: fileHeader,
+        matchList,
+        toggleIcon,
+        dirSpan,
+        encTag,
+        badge,
+        matchElements,
+        renderedCount: file.matches.length
+      };
 
-        if (file.dirPath && file.dirPath.length > 0) {
-          const dirSpan = document.createElement('span');
-          dirSpan.className = 'file-dir';
-          dirSpan.textContent = file.dirPath;
-          labelContainer.appendChild(dirSpan);
-        }
+      fileDomMap.set(file.filePath, fileDom);
+    } else {
+      // 既存ファイルグループの更新
+      // @ts-ignore
+      fileDom.header._file = file;
+      const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'utf-8';
+      fileDom.encTag.className = `encoding-tag ${primaryEnc}`;
+      fileDom.encTag.textContent = formatEncodingName(primaryEnc);
+      fileDom.badge.textContent = file.matches.length.toString();
 
-        const encTag = document.createElement('span');
-        const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'utf-8';
-        encTag.className = `encoding-tag ${primaryEnc}`;
-        encTag.textContent = formatEncodingName(primaryEnc);
-
-        const badge = document.createElement('span');
-        badge.className = 'match-count-badge';
-        badge.textContent = file.matches.length.toString();
-
-        fileHeader.appendChild(labelContainer);
-        fileHeader.appendChild(encTag);
-        fileHeader.appendChild(badge);
-
-        const matchList = document.createElement('div');
-        matchList.className = 'match-list';
-
-        // ヘッダークリックで選択および開閉トグル (フォーカスを維持)
-        fileHeader.addEventListener('click', () => {
-          selectItem(fileHeader, true);
-          const isHidden = matchList.classList.toggle('hidden');
-          toggleIcon.classList.toggle('expanded', !isHidden);
-        });
-
-        const matchElements = new Map();
-
-        // 初回マッチ行の追加
-        for (let i = 0; i < file.matches.length; i++) {
-          const match = file.matches[i];
-          const matchElem = createMatchItemElement(file, match);
-          matchList.appendChild(matchElem);
-          const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
-          matchElements.set(matchKey, matchElem);
-        }
-
-        fileGroup.appendChild(fileHeader);
-        fileGroup.appendChild(matchList);
-
-        fileDom = {
-          container: fileGroup,
-          matchList: matchList,
-          encTag: encTag,
-          badge: badge,
-          matchElements: matchElements,
-          renderedCount: file.matches.length
-        };
-
-        fileDomMap.set(file.filePath, fileDom);
-      } else {
-        // 既存ファイルグループの更新: プライマリエンコーディングとバッジの同期
-        const primaryEnc = file.primaryEncoding || (file.matches[0] && file.matches[0].encoding) || 'utf-8';
-        fileDom.encTag.className = `encoding-tag ${primaryEnc}`;
-        fileDom.encTag.textContent = formatEncodingName(primaryEnc);
-        fileDom.badge.textContent = file.matches.length.toString();
-
-        // 既存行の更新または新規行の追加
-        for (const match of file.matches) {
-          const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
-          const existingElem = fileDom.matchElements.get(matchKey);
-          if (existingElem) {
-            existingElem._file = file;
-            existingElem._match = match;
-            // 文字コード改善等で行内容が変わっている可能性があるためプレビューを安全に再構築
-            const previewSpan = existingElem.querySelector('.match-preview');
-            if (previewSpan) {
-              const newHtml = buildHighlightedLineHtml(match.lineText, match.submatches);
-              if (previewSpan.innerHTML !== newHtml) {
-                previewSpan.innerHTML = newHtml;
-              }
+      for (const match of file.matches) {
+        const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
+        const existingElem = fileDom.matchElements.get(matchKey);
+        if (existingElem) {
+          // @ts-ignore
+          existingElem._file = file;
+          // @ts-ignore
+          existingElem._match = match;
+          const previewSpan = existingElem.querySelector('.match-preview');
+          if (previewSpan) {
+            const newHtml = buildHighlightedLineHtml(match.lineText, match.submatches);
+            if (previewSpan.innerHTML !== newHtml) {
+              previewSpan.innerHTML = newHtml;
             }
-            existingElem.title = `${file.relativePath}:${match.lineNumber}:${match.columnNumber} [${formatEncodingName(match.encoding)}]`;
-          } else {
-            // 新規行の追加
-            const newElem = createMatchItemElement(file, match);
-            fileDom.matchList.appendChild(newElem);
-            fileDom.matchElements.set(matchKey, newElem);
           }
+          existingElem.title = `${file.relativePath}:${match.lineNumber}:${match.columnNumber} [${formatEncodingName(match.encoding)}]`;
+        } else {
+          const newElem = createMatchItemElement(file, match);
+          fileDom.matchList.appendChild(newElem);
+          fileDom.matchElements.set(matchKey, newElem);
         }
+      }
 
-        // 同一ファイル内の子要素の並び順 (行番号・列番号順) を同期
-        for (const match of file.matches) {
-          const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
-          const elem = fileDom.matchElements.get(matchKey);
-          if (elem) {
-            fileDom.matchList.appendChild(elem);
-          }
+      for (const match of file.matches) {
+        const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
+        const elem = fileDom.matchElements.get(matchKey);
+        if (elem) {
+          fileDom.matchList.appendChild(elem);
         }
       }
     }
 
-    // 【重要】渡されたソート済み配列 (fileResults) の順序通りに DOM の子要素順序を完全に同期させる
-    // appendChild は既存のノードを末尾に移動するため、fileResults の順序で呼ぶことで確実に正しい順序 (carry.php < stock.php) に整列される
+    // 深さに応じたインデントとディレクトリ表示の制御
+    fileDom.header.style.paddingLeft = `${4 + depth * 12}px`;
+    if (fileDom.dirSpan) {
+      fileDom.dirSpan.style.display = hideDirPath ? 'none' : '';
+    }
+    const matchPaddingLeft = `${20 + depth * 12}px`;
+    for (const matchElem of fileDom.matchElements.values()) {
+      matchElem.style.paddingLeft = matchPaddingLeft;
+    }
+
+    return fileDom;
+  }
+
+  /**
+   * 検索結果のレンダリング (リスト表示 / ツリー表示を自動切替)
+   * @param {Array<any>} fileResults
+   */
+  function renderResults(fileResults) {
+    if (isTreeMode) {
+      renderTreeResults(fileResults);
+    } else {
+      renderListResults(fileResults);
+    }
+  }
+
+  /**
+   * リスト表示モード (フラットなファイル一覧) のレンダリング
+   * @param {Array<any>} fileResults
+   */
+  function renderListResults(fileResults) {
+    // ツリー表示用のフォルダ要素が残っていればクリア
+    const oldFolders = resultsContainer.querySelectorAll('.folder-group');
+    for (const f of oldFolders) {
+      f.remove();
+    }
+
     for (const file of fileResults) {
-      const dom = fileDomMap.get(file.filePath);
-      if (dom && dom.container) {
-        resultsContainer.appendChild(dom.container);
+      const dom = getOrUpdateFileGroupDom(file, 0, false);
+      resultsContainer.appendChild(dom.container);
+    }
+  }
+
+  /**
+   * ツリー表示モード (ディレクトリ階層ツリー) のレンダリング
+   * VS Code 標準検索のツリー表示と同様に、単一子フォルダの圧縮 (compact folders) に対応
+   * @param {Array<any>} fileResults
+   */
+  function renderTreeResults(fileResults) {
+    /**
+     * @typedef {{ name: string, fullPath: string, folders: Map<string, FolderTreeNode>, files: Array<any>, totalMatches: number }} FolderTreeNode
+     */
+    /** @type {FolderTreeNode} */
+    const root = {
+      name: '',
+      fullPath: '',
+      folders: new Map(),
+      files: [],
+      totalMatches: 0
+    };
+
+    for (const file of fileResults) {
+      const matchCount = file.matches ? file.matches.length : 0;
+      root.totalMatches += matchCount;
+
+      const dirPath = file.dirPath ? file.dirPath.trim() : '';
+      if (!dirPath) {
+        root.files.push(file);
+        continue;
       }
+
+      const parts = dirPath.split('/').filter((p) => p.length > 0);
+      let current = root;
+      let builtPath = '';
+
+      for (const part of parts) {
+        builtPath = builtPath ? `${builtPath}/${part}` : part;
+        let childFolder = current.folders.get(part);
+        if (!childFolder) {
+          childFolder = {
+            name: part,
+            fullPath: builtPath,
+            folders: new Map(),
+            files: [],
+            totalMatches: 0
+          };
+          current.folders.set(part, childFolder);
+        }
+        childFolder.totalMatches += matchCount;
+        current = childFolder;
+      }
+
+      current.files.push(file);
+    }
+
+    /**
+     * 単一の子フォルダしか持たず直接ファイルを持たない中間フォルダを圧縮する (例: src/utils)
+     * @param {FolderTreeNode} node
+     */
+    function compactFolderNode(node) {
+      while (node.files.length === 0 && node.folders.size === 1) {
+        const onlyChild = Array.from(node.folders.values())[0];
+        node.name = node.name ? `${node.name}/${onlyChild.name}` : onlyChild.name;
+        node.fullPath = onlyChild.fullPath;
+        node.folders = onlyChild.folders;
+        node.files = onlyChild.files;
+      }
+      for (const child of node.folders.values()) {
+        compactFolderNode(child);
+      }
+    }
+
+    for (const topFolder of root.folders.values()) {
+      compactFolderNode(topFolder);
+    }
+
+    // コンテナを一旦クリアしてツリー構造を再構築 (ファイルDOM自体は fileDomMap から再利用)
+    resultsContainer.innerHTML = '';
+
+    /**
+     * フォルダノードのDOM要素を再帰的に生成
+     * @param {FolderTreeNode} folderNode
+     * @param {number} depth
+     * @returns {HTMLElement}
+     */
+    function buildFolderDom(folderNode, depth) {
+      const folderGroup = document.createElement('div');
+      folderGroup.className = 'folder-group';
+      folderGroup.setAttribute('data-folder-path', folderNode.fullPath);
+
+      const isCollapsed = collapsedPaths.has(`folder:${folderNode.fullPath}`);
+
+      const folderHeader = document.createElement('div');
+      folderHeader.className = 'folder-header';
+      folderHeader.tabIndex = 0;
+      folderHeader.title = folderNode.fullPath;
+      folderHeader.style.paddingLeft = `${4 + depth * 12}px`;
+      // @ts-ignore
+      folderHeader._folderPath = folderNode.fullPath;
+
+      const toggleIcon = document.createElement('span');
+      toggleIcon.className = `file-toggle-icon ${isCollapsed ? '' : 'expanded'}`;
+      toggleIcon.textContent = '▸';
+      folderHeader.appendChild(toggleIcon);
+
+      // フォルダ SVG アイコン
+      const folderIconWrap = document.createElement('span');
+      folderIconWrap.className = 'folder-icon';
+      folderIconWrap.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M14.5 3H7.71l-.85-.85L6.51 2h-5l-.5.5v11l.5.5h13l.5-.5v-10L14.5 3zm-.51 8.49V13h-12V7h4.49l.35-.15.86-.86H14v5.5zm0-6.49h-6.5l-.35.15-.86.86H2v-3h4.29l.85.85.36.15H14l-.01 1z"/></svg>`;
+      folderHeader.appendChild(folderIconWrap);
+
+      const labelContainer = document.createElement('div');
+      labelContainer.className = 'file-label-container';
+
+      const folderNameSpan = document.createElement('span');
+      folderNameSpan.className = 'folder-name';
+      folderNameSpan.textContent = folderNode.name;
+      labelContainer.appendChild(folderNameSpan);
+
+      const badge = document.createElement('span');
+      badge.className = 'match-count-badge';
+      badge.textContent = folderNode.totalMatches.toString();
+
+      folderHeader.appendChild(labelContainer);
+      folderHeader.appendChild(badge);
+
+      const childrenContainer = document.createElement('div');
+      childrenContainer.className = `folder-children ${isCollapsed ? 'hidden' : ''}`;
+
+      folderHeader.addEventListener('click', () => {
+        selectItem(folderHeader, true);
+        const isHidden = childrenContainer.classList.toggle('hidden');
+        toggleIcon.classList.toggle('expanded', !isHidden);
+        if (isHidden) {
+          collapsedPaths.add(`folder:${folderNode.fullPath}`);
+        } else {
+          collapsedPaths.delete(`folder:${folderNode.fullPath}`);
+        }
+        syncContextKeys();
+      });
+
+      // 子フォルダを自然順ソートして追加
+      const sortedSubfolders = Array.from(folderNode.folders.values()).sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+      );
+      for (const sub of sortedSubfolders) {
+        childrenContainer.appendChild(buildFolderDom(sub, depth + 1));
+      }
+
+      // フォルダ直下のファイルを追加
+      for (const file of folderNode.files) {
+        const fileDom = getOrUpdateFileGroupDom(file, depth + 1, true);
+        childrenContainer.appendChild(fileDom.container);
+      }
+
+      folderGroup.appendChild(folderHeader);
+      folderGroup.appendChild(childrenContainer);
+      return folderGroup;
+    }
+
+    // ルート直下のフォルダを自然順ソートして追加
+    const sortedTopFolders = Array.from(root.folders.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    );
+    for (const topFolder of sortedTopFolders) {
+      resultsContainer.appendChild(buildFolderDom(topFolder, 0));
+    }
+
+    // ルート直下のファイルを追加
+    for (const rootFile of root.files) {
+      const fileDom = getOrUpdateFileGroupDom(rootFile, 0, true);
+      resultsContainer.appendChild(fileDom.container);
     }
   }
 })();

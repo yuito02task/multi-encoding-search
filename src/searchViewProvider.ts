@@ -26,6 +26,13 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     this.iconService = new FileIconService();
     this.loadMediaAssets();
 
+    // 初期コンテキストキーの設定 (ビュータイトルバーのボタン状態制御用)
+    const initialTreeMode = this.context?.globalState.get<boolean>('multiEncodingSearch.isTreeMode', false) || false;
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchPattern', false);
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', false);
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', initialTreeMode);
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', false);
+
     // 設定変更の監視 (フォントサイズや色の変更、アイコンテーマの変更を即座に Webview へ通知)
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('multiEncodingSearch.results')) {
@@ -292,6 +299,84 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (message: WebviewMessage) => {
       await this.handleWebviewMessage(message);
     });
+
+    // タブが表示された際（ショートカット起動時など）に検索入力欄へフォーカスを当てる
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.focusSearchInput();
+      }
+    });
+  }
+
+  /**
+   * 検索入力欄へフォーカスを移動する (選択範囲があれば検索語として引き継ぐ)
+   */
+  public focusSearchInput(): void {
+    let initialQuery: string | undefined;
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor && !activeEditor.selection.isEmpty) {
+      const selectedText = activeEditor.document.getText(activeEditor.selection);
+      if (selectedText && !selectedText.includes('\n') && !selectedText.includes('\r')) {
+        initialQuery = selectedText;
+      }
+    }
+    this.postMessageToWebview({ command: 'focusSearchInput', initialQuery });
+  }
+
+  /**
+   * 最新の情報に更新 (現在の検索条件で再検索を実行)
+   */
+  public refreshSearch(): void {
+    this.postMessageToWebview({ command: 'triggerRefresh' });
+  }
+
+  /**
+   * 検索結果のクリア (結果一覧と入力欄をクリア)
+   */
+  public clearSearchResults(): void {
+    this.runner.cancel();
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchPattern', false);
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', false);
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', false);
+    this.postMessageToWebview({ command: 'triggerClearAll' });
+  }
+
+  /**
+   * ツリー表示 / リスト表示の切り替え
+   */
+  public setViewMode(isTreeMode: boolean): void {
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', isTreeMode);
+    if (this.context) {
+      void this.context.globalState.update('multiEncodingSearch.isTreeMode', isTreeMode);
+    }
+    this.postMessageToWebview({ command: 'triggerSetViewMode', isTreeMode });
+  }
+
+  /**
+   * 新しい検索エディターを開く
+   */
+  public openNewSearchEditor(): void {
+    if (this.view) {
+      this.postMessageToWebview({ command: 'triggerOpenSearchEditor' });
+    } else {
+      void vscode.commands.executeCommand('search.action.openNewEditor');
+    }
+  }
+
+  /**
+   * すべて折りたたむ
+   */
+  public collapseAll(): void {
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', true);
+    this.postMessageToWebview({ command: 'triggerCollapseAll' });
+  }
+
+  /**
+   * すべて展開する
+   */
+  public expandAll(): void {
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', false);
+    this.postMessageToWebview({ command: 'triggerExpandAll' });
   }
 
   /**
@@ -354,12 +439,65 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         }
         break;
 
+      case 'saveViewMode':
+        void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', message.isTreeMode);
+        if (this.context) {
+          await this.context.globalState.update('multiEncodingSearch.isTreeMode', message.isTreeMode);
+        }
+        break;
+
+      case 'updateContextState':
+        if (message.hasSearchPattern !== undefined) {
+          void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchPattern', message.hasSearchPattern);
+        }
+        if (message.hasSearchResults !== undefined) {
+          void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', message.hasSearchResults);
+        }
+        if (message.allCollapsed !== undefined) {
+          void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', message.allCollapsed);
+        }
+        if (message.isTreeMode !== undefined) {
+          void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', message.isTreeMode);
+        }
+        break;
+
+      case 'openSearchEditorWithState':
+        await this.handleOpenSearchEditorWithState(message.options, message.isDetailsExpanded);
+        break;
+
       case 'requestSettings':
         this.postMessageToWebview({
           command: 'updateSettings',
           settings: this.getDisplaySettings()
         });
         break;
+    }
+  }
+
+  /**
+   * 現在の検索条件を引き継いで VS Code 標準の「新しい検索エディター」を開く
+   */
+  private async handleOpenSearchEditorWithState(options: SearchOptions, isDetailsExpanded: boolean): Promise<void> {
+    try {
+      const query = options.pattern || '';
+      await vscode.commands.executeCommand('search.action.openNewEditor', {
+        query,
+        includes: options.includePattern || '',
+        excludes: options.excludePattern || '',
+        regexp: !!options.isRegexp,
+        caseSensitive: !!options.isCaseSensitive,
+        wholeWord: !!options.isWordMatch,
+        showIncludesExcludes: isDetailsExpanded,
+        useIgnores: options.useIgnoreFiles !== false,
+        triggerSearch: query.trim().length > 0
+      });
+    } catch {
+      // フォールバック: 引数なしで実行
+      try {
+        await vscode.commands.executeCommand('search.action.openNewEditor');
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -463,6 +601,8 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       },
       // 完了コールバック
       (totalMatches, totalFiles, isTruncated) => {
+        void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', totalMatches > 0);
+        void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', false);
         this.postMessageToWebview({
           command: 'searchComplete',
           totalMatches,
@@ -646,10 +786,10 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       toggleLineNumbers: translate('Toggle Line Numbers', '行番号の表示/非表示 (Toggle Line Numbers)'),
       detailsToggleTitle: translate('Toggle Search Details', '詳細検索の切り替え'),
       filesToInclude: translate('files to include', '含めるファイル'),
-      filesToIncludePlaceholder: translate('e.g. *.ts, src/**', '例: *.ts, src/**'),
+      patternPlaceholderBlur: translate('e.g. *.ts, **/node_modules', '例: *.ts, **/node_modules'),
+      patternPlaceholderFocus: translate('e.g. *.ts, **/node_modules (⇅ for history)', '例: *.ts, **/node_modules (履歴の⇅)'),
       searchOnlyOpenEditors: translate('Search only in Open Editors', '開いているエディターでのみ検索'),
       filesToExclude: translate('files to exclude', '除外するファイル'),
-      filesToExcludePlaceholder: translate('e.g. node_modules/**, vendor/**', '例: node_modules/**, vendor/**'),
       useExcludeSettings: translate('Use Exclude Settings and Ignore Files', '除外設定を使用してファイルを無視'),
       searching: translate('Searching...', '検索中...'),
       noResults: translate('No results found.', '一致する結果は見つかりませんでした。'),
@@ -687,6 +827,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       excludeHistory: this.context?.globalState.get<string[]>('multiEncodingSearch.excludeHistory') || []
     };
     const isDetailsExpanded = this.context?.globalState.get<boolean>('multiEncodingSearch.isDetailsExpanded') || false;
+    const isTreeMode = this.context?.globalState.get<boolean>('multiEncodingSearch.isTreeMode') || false;
 
     // 初回描画速度を最大化するため、CSS と JS を直接 HTML にインライン展開 (外部ファイルロード待ちをゼロに短縮)
     const styleTag = this.cachedCss
@@ -713,7 +854,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       <!-- 検索入力行 -->
       <div class="search-input-wrapper">
         <div class="input-box-container">
-          <textarea id="searchInput" class="search-input" rows="1" style="height: 24px;" placeholder="${i18n.searchPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+          <textarea id="searchInput" class="search-input" rows="1" style="height: 24px;" placeholder="${i18n.searchPlaceholderBlur}" title="${i18n.searchPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
           <div class="input-actions">
             <button id="btnCaseSensitive" class="icon-toggle-btn" title="${i18n.matchCase}">
               <span class="toggle-icon">Aa</span>
@@ -729,7 +870,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
             </button>
           </div>
         </div>
-        <button id="btnToggleDetails" class="details-toggle-btn ${isDetailsExpanded ? 'active' : ''}" title="${i18n.detailsToggleTitle}">
+        <button id="btnToggleDetails" class="details-toggle-btn" title="${i18n.detailsToggleTitle}">
           <span class="toggle-icon-dots">…</span>
         </button>
       </div>
@@ -739,7 +880,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         <div class="details-field">
           <label for="includeInput" class="field-label">${i18n.filesToInclude}</label>
           <div class="input-box-container details-box">
-            <input type="text" id="includeInput" class="details-input" placeholder="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+            <input type="text" id="includeInput" class="details-input" placeholder="" title="${i18n.patternPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
             <div class="input-actions details-actions">
               <button id="btnSearchOnlyOpenEditors" class="icon-toggle-btn" title="${i18n.searchOnlyOpenEditors}">
                 <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
@@ -752,7 +893,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         <div class="details-field">
           <label for="excludeInput" class="field-label">${i18n.filesToExclude}</label>
           <div class="input-box-container details-box">
-            <input type="text" id="excludeInput" class="details-input" placeholder="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+            <input type="text" id="excludeInput" class="details-input" placeholder="" title="${i18n.patternPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
             <div class="input-actions details-actions">
               <button id="btnUseExcludeSettings" class="icon-toggle-btn active" title="${i18n.useExcludeSettings}">
                 <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
@@ -777,6 +918,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     window.initialSettings = ${JSON.stringify(this.getDisplaySettings())};
     window.initialHistory = ${JSON.stringify(initialHistory)};
     window.initialDetailsExpanded = ${isDetailsExpanded};
+    window.initialTreeMode = ${isTreeMode};
   </script>
   ${scriptTag}
 </body>

@@ -21,8 +21,33 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // ビュータイトルバー（ヘッダー）のアクションコマンド群を登録
+  const commands = [
+    vscode.commands.registerCommand('multiEncodingSearch.refresh', () => {
+      provider.refreshSearch();
+    }),
+    vscode.commands.registerCommand('multiEncodingSearch.clearSearchResults', () => {
+      provider.clearSearchResults();
+    }),
+    vscode.commands.registerCommand('multiEncodingSearch.viewAsTree', () => {
+      provider.setViewMode(true);
+    }),
+    vscode.commands.registerCommand('multiEncodingSearch.viewAsList', () => {
+      provider.setViewMode(false);
+    }),
+    vscode.commands.registerCommand('multiEncodingSearch.openNewSearchEditor', () => {
+      provider.openNewSearchEditor();
+    }),
+    vscode.commands.registerCommand('multiEncodingSearch.collapseAll', () => {
+      provider.collapseAll();
+    }),
+    vscode.commands.registerCommand('multiEncodingSearch.expandAll', () => {
+      provider.expandAll();
+    })
+  ];
+
   // 拡張機能の解放対象として登録
-  context.subscriptions.push(providerDisposable);
+  context.subscriptions.push(providerDisposable, ...commands);
 }
 
 /**

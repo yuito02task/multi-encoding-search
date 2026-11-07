@@ -215,7 +215,11 @@ export class RipgrepRunner {
               return;
             }
 
-            if (stderrOutput.includes('regex parse error') || stderrOutput.includes('syntax error')) {
+            if (
+              stderrOutput.includes('regex parse error') ||
+              stderrOutput.includes('syntax error') ||
+              stderrOutput.includes('PCRE2: error compiling pattern')
+            ) {
               hasReportedError = true;
               onError(stderrOutput.trim(), 'invalidRegex');
               return;
@@ -549,7 +553,8 @@ export class RipgrepRunner {
 
     // 正規表現 or 固定文字列
     if (options.isRegexp) {
-      // 正規表現モード
+      // VS Code 標準検索と同様に PCRE2 エンジンを有効化し、先読み・後読み (look-around) や後方参照に対応させる
+      args.push('--pcre2');
     } else {
       args.push('--fixed-strings');
     }

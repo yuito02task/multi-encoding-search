@@ -122,7 +122,10 @@ export type WebviewMessage =
   | { command: 'openFile'; filePath: string; line: number; column: number; length: number; encoding: SupportedEncoding; matchText?: string; preserveFocus?: boolean }
   | { command: 'requestSettings' }
   | { command: 'saveHistory'; searchHistory: string[]; includeHistory: string[]; excludeHistory: string[] }
-  | { command: 'saveDetailsExpanded'; isExpanded: boolean };
+  | { command: 'saveDetailsExpanded'; isExpanded: boolean }
+  | { command: 'saveViewMode'; isTreeMode: boolean }
+  | { command: 'updateContextState'; hasSearchPattern?: boolean; hasSearchResults?: boolean; allCollapsed?: boolean; isTreeMode?: boolean }
+  | { command: 'openSearchEditorWithState'; options: SearchOptions; isDetailsExpanded: boolean };
 
 /**
  * 拡張機能ホストから Webview へ送信されるメッセージの型定義
@@ -133,5 +136,12 @@ export type ExtensionMessage =
   | { command: 'searchComplete'; totalMatches: number; totalFiles: number; isTruncated: boolean }
   | { command: 'searchError'; errorMessage: string; errorType?: 'rgNotFound' | 'invalidRegex' | 'other' }
   | { command: 'searchCancelled' }
-  | { command: 'updateSettings'; settings: ResultDisplaySettings };
+  | { command: 'updateSettings'; settings: ResultDisplaySettings }
+  | { command: 'triggerRefresh' }
+  | { command: 'triggerClearAll' }
+  | { command: 'triggerSetViewMode'; isTreeMode: boolean }
+  | { command: 'triggerCollapseAll' }
+  | { command: 'triggerExpandAll' }
+  | { command: 'triggerOpenSearchEditor' }
+  | { command: 'focusSearchInput'; initialQuery?: string };
 
