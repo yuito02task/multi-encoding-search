@@ -1028,14 +1028,14 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           <div class="input-box-container details-box">
             <input type="text" id="includeInput" class="details-input details-input-include" placeholder="" title="${i18n.patternPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
             <div class="input-actions details-actions">
-              <button id="btnSearchOnlyOpenEditors" class="icon-toggle-btn" title="${i18n.searchOnlyOpenEditors}">
-                <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
-                  <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A2.5 2.5 0 0 1 8 3.5 2.5 2.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v9a1.5 1.5 0 0 1-1.5 1.5h-3A2.5 2.5 0 0 0 8 14.5 2.5 2.5 0 0 0 5.5 13h-3A1.5 1.5 0 0 1 1 11.5v-9zM2.5 2a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h3A1.5 1.5 0 0 1 7 13.5v-10A1.5 1.5 0 0 0 5.5 2h-3zm11 0h-3A1.5 1.5 0 0 0 9 3.5v10a1.5 1.5 0 0 1 1.5-1.5h3a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5z"/>
-                </svg>
-              </button>
               <button id="btnSearchOnlyModifiedFiles" class="icon-toggle-btn" title="${i18n.searchOnlyModifiedFiles}">
                 <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
                   <path d="M12.5 4a1.5 1.5 0 1 0-.958 2.654c-.163.69-.506 1.21-1.028 1.56-.581.387-1.391.586-2.43.655-.817.054-1.547.185-2.084.42V4.868a1.5 1.5 0 1 0-1 0v6.264a1.5 1.5 0 1 0 1 0v-.686c.421-.338 1.096-.534 2.018-.595 1.22-.081 2.222-.332 2.993-.846.727-.485 1.196-1.202 1.399-2.152A1.5 1.5 0 0 0 12.5 4zM5.5 2.5a.5.5 0 1 1 0 1 .5.5 0 0 1 0-1zm0 10a.5.5 0 1 1 0 1 .5.5 0 0 1 0-1zm5.5-7a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1z"/>
+                </svg>
+              </button>
+              <button id="btnSearchOnlyOpenEditors" class="icon-toggle-btn" title="${i18n.searchOnlyOpenEditors}">
+                <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+                  <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A2.5 2.5 0 0 1 8 3.5 2.5 2.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v9a1.5 1.5 0 0 1-1.5 1.5h-3A2.5 2.5 0 0 0 8 14.5 2.5 2.5 0 0 0 5.5 13h-3A1.5 1.5 0 0 1 1 11.5v-9zM2.5 2a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h3A1.5 1.5 0 0 1 7 13.5v-10A1.5 1.5 0 0 0 5.5 2h-3zm11 0h-3A1.5 1.5 0 0 0 9 3.5v10a1.5 1.5 0 0 1 1.5-1.5h3a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5z"/>
                 </svg>
               </button>
             </div>
