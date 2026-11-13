@@ -223,6 +223,10 @@ body {
   box-sizing: border-box;
 }
 
+.details-input-include {
+  padding-right: 46px;
+}
+
 .details-input::placeholder {
   color: var(--vscode-input-placeholderForeground);
 }

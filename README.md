@@ -38,7 +38,7 @@ VS Code 標準のワークスペース検索（ファイル内検索 / 全文検
 | **VS Code 標準検索と同じサイドバー UI** | **◎ 完全準拠** (標準検索の操作感そのままのドロップイン代替) | × 独自コマンド入力や別パネル表示 | ◎ 標準UI |
 | **ツリー表示 / リスト表示・折りたたみ** | **◎ 対応** (ツリー/リスト切替・すべて折りたたむ・状態維持) | × 非対応 | ◎ 対応 |
 | **PCRE2 正規表現 (先読み/後読み)・複数行検索** | **◎ 対応** (`(?<!::)` 等の look-around・`Shift+Enter` 複数行検索) | × 制限あり | ◎ 対応 |
-| **詳細フィルタ (Include/Exclude・開いているエディタ限定)** | **◎ 対応** (`search.exclude` / `.gitignore` 連動・開いているタブ限定検索) | △ 簡易指定のみ | ◎ 対応 |
+| **詳細フィルタ (Include/Exclude・開いているエディタ・変更ファイル限定)** | **◎ 対応** (`search.exclude` / `.gitignore` 連動・開いているタブ限定・Git変更ファイル限定検索) | △ 簡易指定のみ | ◎ 対応 |
 | **事前設定・外部ツール導入** | **◎ 不要 (Zero Config)** (VS Code内蔵 ripgrep を自動検出して即動作) | △ 外部 grep パスや文字コード設定が必要 | ◎ 不要 |
 
 ---
@@ -55,7 +55,7 @@ VS Code 標準のワークスペース検索（ファイル内検索 / 全文検
    - **タブ切替・再起動時の完全な状態維持**: アクティビティバーでエクスプローラーやソース管理など他のタブに切り替えて戻った際も、検索結果・ツリー/リスト表示・「すべて折りたたんで表示」や個別の折りたたみ状態・選択行・スクロール位置・入力内容を完全に維持します。
    - **キーボードナビゲーション**: 検索結果一覧で上下キー（`↑` / `↓`）による連続プレビュー移動、左右キー（`←` / `→`）でのフォルダ・ファイル開閉、`Enter` キーでのエディタフォーカス移動、`Ctrl+C` での行テキスト/パスコピーに対応。
    - **3つの入力欄のツールチップ & 検索履歴**: 検索キーワード・含めるファイル・除外するファイルの各入力欄で VS Code 標準準拠のツールチップ表示と、上下キー（`⇅`）による過去50件の入力履歴呼び出しに対応。
-   - **詳細検索オプション**: 「開いているエディターでのみ検索」「除外設定（`.gitignore` / `search.exclude` / `files.exclude`）を使用してファイルを無視」トグルボタンを搭載。
+   - **詳細検索オプション**: 「含めるファイル」欄に「開いているエディターでのみ検索」および「変更されたファイルのみ検索する (ソース管理)」トグルボタン、「除外するファイル」欄に「除外設定（`.gitignore` / `search.exclude` / `files.exclude`）を使用してファイルを無視」トグルボタンを標準搭載。
    - **複数行検索 & PCRE2 正規表現サポート**: `Shift + Enter` やコピペによる複数行検索、および `--pcre2` による肯定/否定の先読み・後読み（例: `(?<!::)number_format\(`）や後方参照を含む高度な正規表現検索に対応。
    - **ショートカット起動**: タブを直接開くショートカット（デフォルト: `Ctrl+Shift+Alt+F` / Mac: `Cmd+Shift+Alt+F`、キーボードショートカット設定から自由に変更可能）と、ツールチップでのショートカット併記に対応。
 
@@ -113,7 +113,7 @@ This addresses long-standing VS Code issues:
    - **Complete State Preservation Across Tab Switches**: Preserves search results, tree/list view mode, Collapse All and individual folder/file collapsed states, selected item, and scroll position when switching between Activity Bar tabs.
    - **Keyboard Navigation & Search History**: Up/Down arrow keys for live editor preview synchronization, Left/Right arrow keys to collapse/expand, and persistent search/include/exclude history (`⇅`).
    - **PCRE2 Regular Expressions & Multi-line Search**: Supports look-ahead, look-behind (e.g., `(?<!::)number_format\(`), backreferences (`--pcre2`), and `Shift + Enter` multi-line queries.
-   - **Search Details**: Include/Exclude glob filters with "Search only in Open Editors" and "Use Exclude Settings and Ignore Files" toggles.
+   - **Search Details**: Include/Exclude glob filters with "Search only in Open Editors", "Search only in Modified Files (Source Control)", and "Use Exclude Settings and Ignore Files" toggles.
 
 3. **Zero Configuration**
    - Automatically discovers VS Code's bundled `ripgrep` binary across Windows, WSL, macOS, and Linux.
@@ -138,6 +138,7 @@ This addresses long-standing VS Code issues:
 
 ## Release Notes / 更新履歴
 
+- **v1.5.2**: 詳細検索の「含めるファイル」入力欄に「変更されたファイルのみ検索する (ソース管理) / Search only in Modified Files (Source Control)」トグルボタンを追加（VS Code Git 拡張機能 API および Git CLI 連動）。
 - **v1.5.1**: アクティビティバーのタブ切替時における折りたたみ状態（「すべて折りたたんで表示」および個別フォルダ/ファイルの開閉状態）・選択行・スクロール位置・コンテキストキーの完全維持に対応。Marketplace / Google 検索 / AI 検索向けのドキュメント・キーワード最適化。
 - **v1.5.0**: 3つの入力欄のツールチップ標準準拠、「詳細検索の切り替え」ボタンの非強調化、ビューヘッダーの5つのアクションボタン（更新・クリア・ツリー/リスト表示切替・新しい検索エディターを開く・すべて折りたたむ/展開）とショートカット（`Ctrl+Shift+Alt+F`）実装、PCRE2 正規表現（先読み・後読み）対応。
 - **v1.4.0 - v1.4.3**: EUC-KR 等の文字コード判定強化、初回起動の高速化、検索結果一覧のホバー・選択スタイルや履歴ナビゲーションの VS Code 標準準拠化。

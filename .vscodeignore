@@ -10,5 +10,7 @@ GEMINI.md
 .agents/**
 test-samples/**
 test/**
+test_*.js
+*.vsix
 **/*.map
 

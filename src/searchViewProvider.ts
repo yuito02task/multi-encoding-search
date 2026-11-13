@@ -579,9 +579,112 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * ソース管理 (Git) で変更されているファイル (作業ツリーの変更・ステージ済みの変更・未追跡ファイル) の絶対パス一覧を取得する
+   */
+  private getModifiedFilePaths(workspaceFolders: readonly vscode.WorkspaceFolder[]): string[] {
+    const modifiedSet = new Set<string>();
+
+    const addFileIfExists = (filePath: string) => {
+      try {
+        if (filePath && fs.existsSync(filePath)) {
+          const stat = fs.statSync(filePath);
+          if (stat.isFile()) {
+            modifiedSet.add(filePath);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    // 1. VS Code 標準の Git 拡張機能 API から変更ファイル一覧を取得 (ソース管理ビューの表示内容と同期)
+    try {
+      const gitExtension = vscode.extensions.getExtension('vscode.git');
+      if (gitExtension && gitExtension.isActive && gitExtension.exports) {
+        const gitApi = gitExtension.exports.getAPI(1);
+        if (gitApi && Array.isArray(gitApi.repositories)) {
+          for (const repo of gitApi.repositories) {
+            const state = repo.state;
+            if (!state) continue;
+            const changeGroups = [
+              state.workingTreeChanges || [],
+              state.indexChanges || [],
+              state.mergeChanges || [],
+              state.untrackedChanges || []
+            ];
+            for (const group of changeGroups) {
+              for (const change of group) {
+                const uri: vscode.Uri | undefined = change?.uri;
+                if (uri && uri.scheme === 'file') {
+                  addFileIfExists(uri.fsPath);
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Git 拡張機能 API が利用できない場合は CLI フォールバックで補完
+    }
+
+    // 2. 各ワークスペースフォルダで git CLI による変更・ステージ済み・未追跡ファイルの収集 (サブフォルダや未初期化時の補完)
+    for (const folder of workspaceFolders) {
+      const cwd = folder.uri.fsPath;
+      try {
+        // 作業ツリーの変更ファイル (-m) と除外されていない未追跡ファイル (-o --exclude-standard)
+        const lsFilesOut = childProcess.execFileSync(
+          'git',
+          ['ls-files', '-m', '-o', '--exclude-standard', '-z'],
+          { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+        );
+        if (lsFilesOut) {
+          for (const rel of lsFilesOut.split('\0')) {
+            if (rel) {
+              addFileIfExists(path.resolve(cwd, rel));
+            }
+          }
+        }
+      } catch {
+        // git 管理外フォルダの場合は無視
+      }
+
+      try {
+        // ステージ済み (Index) の変更ファイル
+        const diffCachedOut = childProcess.execFileSync(
+          'git',
+          ['diff', '--name-only', '--cached', '--relative', '-z'],
+          { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+        );
+        if (diffCachedOut) {
+          for (const rel of diffCachedOut.split('\0')) {
+            if (rel) {
+              addFileIfExists(path.resolve(cwd, rel));
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return Array.from(modifiedSet);
+  }
+
+  /**
    * 検索コマンドを処理する
    */
   private async handleSearchCommand(options: SearchOptions): Promise<void> {
+    // ワークスペースフォルダの確認
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      this.postMessageToWebview({
+        command: 'searchError',
+        errorMessage: vscode.l10n.t('No workspace folder is open. Please open a folder before searching.'),
+        errorType: 'other'
+      });
+      return;
+    }
+
     // 開いているエディターでのみ検索が有効な場合、実際に開いているエディタタブのローカルファイルのみを厳密に抽出
     if (options.onlyOpenEditors) {
       const openPaths = new Set<string>();
@@ -595,19 +698,14 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       options.openEditorPaths = Array.from(openPaths);
     }
 
+    // 変更されたファイルのみ検索する (ソース管理) が有効な場合、Git で変更されているファイル一覧を抽出
+    if (options.onlyModifiedFiles) {
+      options.modifiedFilePaths = this.getModifiedFilePaths(workspaceFolders);
+    }
+
     // 「除外設定を使用してファイルを無視」が有効な場合、VS Code 本体の除外設定 (search.exclude / files.exclude) を自動取得
     if (options.useIgnoreFiles !== false) {
       options.defaultExcludePatterns = this.getDefaultExcludePatterns();
-    }
-    // ワークスペースフォルダの確認
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      this.postMessageToWebview({
-        command: 'searchError',
-        errorMessage: vscode.l10n.t('No workspace folder is open. Please open a folder before searching.'),
-        errorType: 'other'
-      });
-      return;
     }
 
     const folderPaths = workspaceFolders.map((f) => f.uri.fsPath);
@@ -835,11 +933,13 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       patternPlaceholderBlur: translate('e.g. *.ts, **/node_modules', '例: *.ts, **/node_modules'),
       patternPlaceholderFocus: translate('e.g. *.ts, **/node_modules (⇅ for history)', '例: *.ts, **/node_modules (履歴の⇅)'),
       searchOnlyOpenEditors: translate('Search only in Open Editors', '開いているエディターでのみ検索'),
+      searchOnlyModifiedFiles: translate('Search only in Modified Files (Source Control)', '変更されたファイルのみ検索する (ソース管理)'),
       filesToExclude: translate('files to exclude', '除外するファイル'),
       useExcludeSettings: translate('Use Exclude Settings and Ignore Files', '除外設定を使用してファイルを無視'),
       searching: translate('Searching...', '検索中...'),
       noResults: translate('No results found.', '一致する結果は見つかりませんでした。'),
       noResultsOpenEditors: translate('No results found in open editors.', '開いているエディターに一致する結果は見つかりませんでした。'),
+      noResultsModifiedFiles: translate('No results found in modified files.', '変更されたファイルに一致する結果は見つかりませんでした。'),
       resultsTruncated: translate(' (showing first 10,000 results)', ' (上限10,000件に達したため一部のみ表示)'),
       searchCancelled: translate('Search was cancelled.', '検索がキャンセルされました。')
     };
@@ -926,11 +1026,16 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         <div class="details-field">
           <label for="includeInput" class="field-label">${i18n.filesToInclude}</label>
           <div class="input-box-container details-box">
-            <input type="text" id="includeInput" class="details-input" placeholder="" title="${i18n.patternPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+            <input type="text" id="includeInput" class="details-input details-input-include" placeholder="" title="${i18n.patternPlaceholderBlur}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
             <div class="input-actions details-actions">
               <button id="btnSearchOnlyOpenEditors" class="icon-toggle-btn" title="${i18n.searchOnlyOpenEditors}">
                 <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
                   <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A2.5 2.5 0 0 1 8 3.5 2.5 2.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v9a1.5 1.5 0 0 1-1.5 1.5h-3A2.5 2.5 0 0 0 8 14.5 2.5 2.5 0 0 0 5.5 13h-3A1.5 1.5 0 0 1 1 11.5v-9zM2.5 2a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h3A1.5 1.5 0 0 1 7 13.5v-10A1.5 1.5 0 0 0 5.5 2h-3zm11 0h-3A1.5 1.5 0 0 0 9 3.5v10a1.5 1.5 0 0 1 1.5-1.5h3a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5z"/>
+                </svg>
+              </button>
+              <button id="btnSearchOnlyModifiedFiles" class="icon-toggle-btn" title="${i18n.searchOnlyModifiedFiles}">
+                <svg class="toggle-icon-svg" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+                  <path d="M12.5 4a1.5 1.5 0 1 0-.958 2.654c-.163.69-.506 1.21-1.028 1.56-.581.387-1.391.586-2.43.655-.817.054-1.547.185-2.084.42V4.868a1.5 1.5 0 1 0-1 0v6.264a1.5 1.5 0 1 0 1 0v-.686c.421-.338 1.096-.534 2.018-.595 1.22-.081 2.222-.332 2.993-.846.727-.485 1.196-1.202 1.399-2.152A1.5 1.5 0 0 0 12.5 4zM5.5 2.5a.5.5 0 1 1 0 1 .5.5 0 0 1 0-1zm0 10a.5.5 0 1 1 0 1 .5.5 0 0 1 0-1zm5.5-7a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1z"/>
                 </svg>
               </button>
             </div>

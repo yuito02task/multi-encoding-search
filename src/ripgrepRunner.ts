@@ -75,8 +75,9 @@ export class RipgrepRunner {
 
     this.isCancelledByUser = false;
 
-    // 開いているエディターのみ検索で、開いているファイルが0件の場合は即座に空結果を返して終了
-    if (options.onlyOpenEditors && (!options.openEditorPaths || options.openEditorPaths.length === 0)) {
+    // 「開いているエディターでのみ検索」または「変更されたファイルのみ検索 (ソース管理)」が有効な場合の対象ファイル解決
+    const targetFilePaths = this.resolveTargetFilePaths(options);
+    if (targetFilePaths !== null && targetFilePaths.length === 0) {
       onComplete(0, 0, false);
       return;
     }
@@ -608,9 +609,10 @@ export class RipgrepRunner {
     // 検索パターン文字列
     args.push(options.pattern);
 
-    // 検索対象のパス (開いているエディターのみの場合は対象ファイルパス、通常のときはワークスペースフォルダ)
-    if (options.onlyOpenEditors && options.openEditorPaths && options.openEditorPaths.length > 0) {
-      for (const filePath of options.openEditorPaths) {
+    // 検索対象のパス (特定ファイル限定モードの場合は対象ファイルパス、通常のときはワークスペースフォルダ)
+    const targetFilePaths = this.resolveTargetFilePaths(options);
+    if (targetFilePaths !== null && targetFilePaths.length > 0) {
+      for (const filePath of targetFilePaths) {
         args.push(filePath);
       }
     } else {
@@ -620,6 +622,40 @@ export class RipgrepRunner {
     }
 
     return args;
+  }
+
+  /**
+   * 「開いているエディターでのみ検索」および「変更されたファイルのみ検索 (ソース管理)」の条件から検索対象ファイル一覧を解決する
+   * @returns 対象ファイル限定時はファイルパス配列、ワークスペース全体検索時は null
+   */
+  private resolveTargetFilePaths(options: SearchOptions): string[] | null {
+    const useOpenEditors = !!options.onlyOpenEditors;
+    const useModifiedFiles = !!options.onlyModifiedFiles;
+
+    if (!useOpenEditors && !useModifiedFiles) {
+      return null;
+    }
+
+    const openPaths = options.openEditorPaths || [];
+    const modifiedPaths = options.modifiedFilePaths || [];
+
+    if (useOpenEditors && useModifiedFiles) {
+      // 両方のボタンが有効な場合は「開いているエディター」かつ「変更されたファイル」の積集合 (AND条件)
+      const isWin = process.platform === 'win32';
+      const modifiedSet = new Set(
+        modifiedPaths.map((p) => (isWin ? path.normalize(p).toLowerCase() : path.normalize(p)))
+      );
+      return openPaths.filter((p) => {
+        const norm = isWin ? path.normalize(p).toLowerCase() : path.normalize(p);
+        return modifiedSet.has(norm);
+      });
+    }
+
+    if (useOpenEditors) {
+      return openPaths;
+    }
+
+    return modifiedPaths;
   }
 
   /**

@@ -35,6 +35,10 @@ export interface SearchOptions {
   onlyOpenEditors?: boolean;
   /** 開いているエディターのファイルパス一覧 (onlyOpenEditors が true の場合) */
   openEditorPaths?: string[];
+  /** 変更されたファイルのみ検索する (ソース管理) かどうか */
+  onlyModifiedFiles?: boolean;
+  /** ソース管理で変更されたファイルのパス一覧 (onlyModifiedFiles が true の場合) */
+  modifiedFilePaths?: string[];
   /** 除外設定・無視ファイル (.gitignore 等) を使用するかどうか (デフォルト: true) */
   useIgnoreFiles?: boolean;
   /** VS Code 設定 (search.exclude / files.exclude) から取得した既定の除外パターン一覧 */

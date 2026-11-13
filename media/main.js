@@ -30,6 +30,7 @@
   const includeInput = /** @type {HTMLInputElement} */ (document.getElementById('includeInput'));
   const excludeInput = /** @type {HTMLInputElement} */ (document.getElementById('excludeInput'));
   const btnSearchOnlyOpenEditors = /** @type {HTMLButtonElement | null} */ (document.getElementById('btnSearchOnlyOpenEditors'));
+  const btnSearchOnlyModifiedFiles = /** @type {HTMLButtonElement | null} */ (document.getElementById('btnSearchOnlyModifiedFiles'));
   const btnUseExcludeSettings = /** @type {HTMLButtonElement | null} */ (document.getElementById('btnUseExcludeSettings'));
   const statusContainer = /** @type {HTMLElement} */ (document.getElementById('statusContainer'));
   const resultsContainer = /** @type {HTMLElement} */ (document.getElementById('resultsContainer'));
@@ -341,10 +342,15 @@
     // @ts-ignore
     : (window.initialTreeMode !== undefined ? !!window.initialTreeMode : false);
 
-  // 新規トグルオプション: 開いているエディターでのみ検索 / 除外設定を使用してファイルを無視
+  // トグルオプション: 開いているエディターでのみ検索 / 変更されたファイルのみ検索する (ソース管理) / 除外設定を使用してファイルを無視
   let onlyOpenEditors = !!previousState.onlyOpenEditors;
   if (onlyOpenEditors && btnSearchOnlyOpenEditors) {
     btnSearchOnlyOpenEditors.classList.add('active');
+  }
+
+  let onlyModifiedFiles = !!previousState.onlyModifiedFiles;
+  if (onlyModifiedFiles && btnSearchOnlyModifiedFiles) {
+    btnSearchOnlyModifiedFiles.classList.add('active');
   }
 
   let useExcludeSettings = previousState.useExcludeSettings !== undefined ? !!previousState.useExcludeSettings : true;
@@ -452,6 +458,7 @@
       includePattern: includeInput.value,
       excludePattern: excludeInput.value,
       onlyOpenEditors,
+      onlyModifiedFiles,
       useExcludeSettings,
       isDetailsExpanded,
       isTreeMode,
@@ -557,6 +564,18 @@
     btnSearchOnlyOpenEditors.addEventListener('click', () => {
       onlyOpenEditors = !onlyOpenEditors;
       btnSearchOnlyOpenEditors.classList.toggle('active', onlyOpenEditors);
+      saveState();
+      if (searchInput.value.trim()) {
+        executeSearch(false);
+      }
+    });
+  }
+
+  // 「変更されたファイルのみ検索する (ソース管理)」ボタン (トグル時に即座に検索再実行)
+  if (btnSearchOnlyModifiedFiles) {
+    btnSearchOnlyModifiedFiles.addEventListener('click', () => {
+      onlyModifiedFiles = !onlyModifiedFiles;
+      btnSearchOnlyModifiedFiles.classList.toggle('active', onlyModifiedFiles);
       saveState();
       if (searchInput.value.trim()) {
         executeSearch(false);
@@ -697,6 +716,7 @@
         includePattern: includeInput.value.trim() || undefined,
         excludePattern: excludeInput.value.trim() || undefined,
         onlyOpenEditors,
+        onlyModifiedFiles,
         useIgnoreFiles: useExcludeSettings
       }
     });
@@ -960,9 +980,13 @@
         isSearching = false;
         if (message.totalMatches === 0) {
           statusContainer.className = 'status-container';
-          statusContainer.textContent = onlyOpenEditors
-            ? (i18n.noResultsOpenEditors || i18n.noResults)
-            : i18n.noResults;
+          if (onlyOpenEditors && !onlyModifiedFiles) {
+            statusContainer.textContent = i18n.noResultsOpenEditors || i18n.noResults;
+          } else if (onlyModifiedFiles && !onlyOpenEditors) {
+            statusContainer.textContent = i18n.noResultsModifiedFiles || i18n.noResults;
+          } else {
+            statusContainer.textContent = i18n.noResults;
+          }
           clearResults();
         } else {
           statusContainer.className = 'status-container';
