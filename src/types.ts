@@ -143,5 +143,6 @@ export type ExtensionMessage =
   | { command: 'triggerCollapseAll' }
   | { command: 'triggerExpandAll' }
   | { command: 'triggerOpenSearchEditor' }
-  | { command: 'focusSearchInput'; initialQuery?: string };
+  | { command: 'focusSearchInput'; initialQuery?: string }
+  | { command: 'viewVisible' };
 

@@ -1,6 +1,6 @@
 {
   "extension.displayName": "Multi-Encoding Search",
-  "extension.description": "VS Code標準の検索機能を文字コード対応で丸ごと代替（置換機能を除く）。設定変更なしでEUC-JP・Shift_JIS・UTF-8・EUC-KR等の混在ファイルを自動並行検索＆文字化けなしで開きます。",
+  "extension.description": "【VS Code 複数文字コード検索・Grep拡張機能】VSCode標準の検索機能（Ctrl+Shift+F）を文字コード混在対応で丸ごと代替（置換を除く）。設定変更なしで Shift_JIS (SJIS/CP932)・EUC-JP・UTF-8・EUC-KR 等の混在ファイルを自動並行検索し、文字化けなしで開きます。",
   "viewsContainers.multiEncodingSearch.title": "マルチ文字コード検索",
   "views.multiEncodingSearch.name": "マルチ文字コード検索",
   "command.refresh.title": "最新の情報に更新",

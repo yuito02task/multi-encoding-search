@@ -18,6 +18,12 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   private cachedCss?: string;
   private cachedJs?: string;
 
+  // ビュータイトルバーのボタン制御用コンテキスト状態の保持 (タブ切替時の状態維持用)
+  private hasSearchPatternState: boolean = false;
+  private hasSearchResultsState: boolean = false;
+  private isTreeModeState: boolean = false;
+  private allCollapsedState: boolean = false;
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly context?: vscode.ExtensionContext
@@ -26,12 +32,12 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     this.iconService = new FileIconService();
     this.loadMediaAssets();
 
-    // 初期コンテキストキーの設定 (ビュータイトルバーのボタン状態制御用)
-    const initialTreeMode = this.context?.globalState.get<boolean>('multiEncodingSearch.isTreeMode', false) || false;
-    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchPattern', false);
-    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', false);
-    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', initialTreeMode);
-    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', false);
+    // 初期コンテキストキーの設定 (前回の状態を globalState から復元)
+    this.hasSearchPatternState = this.context?.globalState.get<boolean>('multiEncodingSearch.hasSearchPattern', false) || false;
+    this.hasSearchResultsState = this.context?.globalState.get<boolean>('multiEncodingSearch.hasSearchResults', false) || false;
+    this.isTreeModeState = this.context?.globalState.get<boolean>('multiEncodingSearch.isTreeMode', false) || false;
+    this.allCollapsedState = this.context?.globalState.get<boolean>('multiEncodingSearch.allCollapsed', false) || false;
+    this.applyContextKeys();
 
     // 設定変更の監視 (フォントサイズや色の変更、アイコンテーマの変更を即座に Webview へ通知)
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -300,12 +306,23 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       await this.handleWebviewMessage(message);
     });
 
-    // タブが表示された際（ショートカット起動時など）に検索入力欄へフォーカスを当てる
+    // タブが再表示された際、コンテキストキーやスクロール位置・フォーカス状態を維持・復元する（検索の再実行や折りたたみ状態のリセットは行わない）
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
-        this.focusSearchInput();
+        this.applyContextKeys();
+        this.postMessageToWebview({ command: 'viewVisible' });
       }
     });
+  }
+
+  /**
+   * 現在のコンテキストキー状態を VS Code 本体へ反映する
+   */
+  private applyContextKeys(): void {
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchPattern', this.hasSearchPatternState);
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', this.hasSearchResultsState);
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', this.isTreeModeState);
+    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', this.allCollapsedState);
   }
 
   /**
@@ -335,9 +352,15 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    */
   public clearSearchResults(): void {
     this.runner.cancel();
-    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchPattern', false);
-    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', false);
-    void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', false);
+    this.hasSearchPatternState = false;
+    this.hasSearchResultsState = false;
+    this.allCollapsedState = false;
+    this.applyContextKeys();
+    if (this.context) {
+      void this.context.globalState.update('multiEncodingSearch.hasSearchPattern', false);
+      void this.context.globalState.update('multiEncodingSearch.hasSearchResults', false);
+      void this.context.globalState.update('multiEncodingSearch.allCollapsed', false);
+    }
     this.postMessageToWebview({ command: 'triggerClearAll' });
   }
 
@@ -345,6 +368,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    * ツリー表示 / リスト表示の切り替え
    */
   public setViewMode(isTreeMode: boolean): void {
+    this.isTreeModeState = isTreeMode;
     void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', isTreeMode);
     if (this.context) {
       void this.context.globalState.update('multiEncodingSearch.isTreeMode', isTreeMode);
@@ -367,7 +391,11 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    * すべて折りたたむ
    */
   public collapseAll(): void {
+    this.allCollapsedState = true;
     void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', true);
+    if (this.context) {
+      void this.context.globalState.update('multiEncodingSearch.allCollapsed', true);
+    }
     this.postMessageToWebview({ command: 'triggerCollapseAll' });
   }
 
@@ -375,7 +403,11 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    * すべて展開する
    */
   public expandAll(): void {
+    this.allCollapsedState = false;
     void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', false);
+    if (this.context) {
+      void this.context.globalState.update('multiEncodingSearch.allCollapsed', false);
+    }
     this.postMessageToWebview({ command: 'triggerExpandAll' });
   }
 
@@ -440,6 +472,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
         break;
 
       case 'saveViewMode':
+        this.isTreeModeState = message.isTreeMode;
         void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', message.isTreeMode);
         if (this.context) {
           await this.context.globalState.update('multiEncodingSearch.isTreeMode', message.isTreeMode);
@@ -448,16 +481,24 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
 
       case 'updateContextState':
         if (message.hasSearchPattern !== undefined) {
+          this.hasSearchPatternState = message.hasSearchPattern;
           void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchPattern', message.hasSearchPattern);
+          void this.context?.globalState.update('multiEncodingSearch.hasSearchPattern', message.hasSearchPattern);
         }
         if (message.hasSearchResults !== undefined) {
+          this.hasSearchResultsState = message.hasSearchResults;
           void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', message.hasSearchResults);
+          void this.context?.globalState.update('multiEncodingSearch.hasSearchResults', message.hasSearchResults);
         }
         if (message.allCollapsed !== undefined) {
+          this.allCollapsedState = message.allCollapsed;
           void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', message.allCollapsed);
+          void this.context?.globalState.update('multiEncodingSearch.allCollapsed', message.allCollapsed);
         }
         if (message.isTreeMode !== undefined) {
+          this.isTreeModeState = message.isTreeMode;
           void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', message.isTreeMode);
+          void this.context?.globalState.update('multiEncodingSearch.isTreeMode', message.isTreeMode);
         }
         break;
 
@@ -601,8 +642,13 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       },
       // 完了コールバック
       (totalMatches, totalFiles, isTruncated) => {
-        void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.hasSearchResults', totalMatches > 0);
-        void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.allCollapsed', false);
+        this.hasSearchResultsState = totalMatches > 0;
+        this.allCollapsedState = false;
+        this.applyContextKeys();
+        if (this.context) {
+          void this.context.globalState.update('multiEncodingSearch.hasSearchResults', this.hasSearchResultsState);
+          void this.context.globalState.update('multiEncodingSearch.allCollapsed', false);
+        }
         this.postMessageToWebview({
           command: 'searchComplete',
           totalMatches,

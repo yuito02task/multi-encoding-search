@@ -352,6 +352,55 @@
     btnUseExcludeSettings.classList.toggle('active', useExcludeSettings);
   }
 
+  // 折りたたみ状態 (collapsedPaths)・検索結果 (currentFileResults)・ステータス・選択アイテム・スクロール位置・フォーカス位置の復元
+  if (Array.isArray(previousState.collapsedPaths)) {
+    for (const p of previousState.collapsedPaths) {
+      if (typeof p === 'string') {
+        collapsedPaths.add(p);
+      }
+    }
+  }
+  if (Array.isArray(previousState.currentFileResults) && previousState.currentFileResults.length > 0) {
+    currentFileResults = previousState.currentFileResults;
+  }
+  if (typeof previousState.statusText === 'string' && previousState.statusText.length > 0) {
+    statusContainer.textContent = previousState.statusText;
+    statusContainer.className = previousState.statusIsError ? 'status-container error' : 'status-container';
+  }
+
+  // スクロール位置と選択アイテム識別子・最後のフォーカス領域の保持
+  /** @type {number} */
+  let savedScrollTop = typeof previousState.scrollTop === 'number' ? previousState.scrollTop : 0;
+  /** @type {string | null} */
+  let selectedItemKey = typeof previousState.selectedItemKey === 'string' ? previousState.selectedItemKey : null;
+  /** @type {'search' | 'include' | 'exclude' | 'results'} */
+  let lastFocusedArea = previousState.lastFocusedArea || 'search';
+  /** @type {NodeJS.Timeout | null} */
+  let scrollSaveTimer = null;
+
+  /**
+   * 選択中の DOM 要素から永続化用の識別キーを取得する
+   * @param {HTMLElement | null} el
+   * @returns {string | null}
+   */
+  function getItemKey(el) {
+    if (!el) return null;
+    if (el.classList.contains('match-item')) {
+      return el.getAttribute('data-match-key');
+    }
+    if (el.classList.contains('file-header')) {
+      const group = el.closest('.file-group');
+      const fp = group?.getAttribute('data-file-path');
+      return fp ? `file:${fp}` : null;
+    }
+    if (el.classList.contains('folder-header')) {
+      const group = el.closest('.folder-group');
+      const dp = group?.getAttribute('data-folder-path');
+      return dp ? `folder:${dp}` : null;
+    }
+    return null;
+  }
+
   /**
    * 拡張機能ホスト側のコンテキストキー (タイトルバーのボタン有効化・アイコン切替) を同期する
    */
@@ -359,14 +408,15 @@
     const hasPattern = searchInput.value.trim().length > 0 || includeInput.value.trim().length > 0 || excludeInput.value.trim().length > 0;
     const hasResults = currentFileResults.length > 0;
 
-    // 現在表示されている折りたたみ対象のうち、展開されているものが1つでもあるか確認
+    // 現在画面上に表示されている折りたたみ対象のうち、展開されているものが1つでもあるか確認
     let allCollapsed = false;
     if (hasResults) {
       const expandableLists = resultsContainer.querySelectorAll('.folder-children, .match-list');
       if (expandableLists.length > 0) {
         let anyExpanded = false;
         for (const list of expandableLists) {
-          if (!list.classList.contains('hidden')) {
+          // 自身が hidden でなく、かつ親要素側も hidden でない場合のみ画面上で展開中と判定
+          if (!list.classList.contains('hidden') && !list.parentElement?.closest('.hidden')) {
             anyExpanded = true;
             break;
           }
@@ -389,9 +439,9 @@
 
   // 状態の保存 (Webview ステートおよび VS Code 本体の globalState 永続化)
   function saveState() {
-    const searchHist = searchHistoryNav.getHistory();
-    const includeHist = includeHistoryNav.getHistory();
-    const excludeHist = excludeHistoryNav.getHistory();
+    const searchHist = searchHistoryNav ? searchHistoryNav.getHistory() : (previousState.searchHistory || []);
+    const includeHist = includeHistoryNav ? includeHistoryNav.getHistory() : (previousState.includeHistory || []);
+    const excludeHist = excludeHistoryNav ? excludeHistoryNav.getHistory() : (previousState.excludeHistory || []);
 
     vscode.setState({
       pattern: searchInput.value,
@@ -405,6 +455,13 @@
       useExcludeSettings,
       isDetailsExpanded,
       isTreeMode,
+      collapsedPaths: Array.from(collapsedPaths),
+      currentFileResults,
+      statusText: isSearching ? '' : (statusContainer.textContent || ''),
+      statusIsError: statusContainer.classList.contains('error'),
+      selectedItemKey,
+      scrollTop: savedScrollTop,
+      lastFocusedArea,
       searchHistory: searchHist,
       includeHistory: includeHist,
       excludeHistory: excludeHist
@@ -530,11 +587,13 @@
     });
   });
 
-  // placeholder およびツールチップ (title) の動的制御 (VS Code 標準の InputBox + HistoryInputBox 仕様に完全準拠)
+  // placeholder およびツールチップ (title) の動的制御 & フォーカス位置の記憶 (VS Code 標準の InputBox + HistoryInputBox 仕様に完全準拠)
   searchInput.addEventListener('focus', () => {
+    lastFocusedArea = 'search';
     const focusText = i18n.searchPlaceholderFocus || '検索 (履歴の⇅)';
     searchInput.placeholder = focusText;
     searchInput.title = focusText;
+    saveState();
   });
   searchInput.addEventListener('blur', () => {
     const blurText = i18n.searchPlaceholderBlur || '検索';
@@ -543,9 +602,11 @@
   });
 
   includeInput.addEventListener('focus', () => {
+    lastFocusedArea = 'include';
     const focusText = i18n.patternPlaceholderFocus || '例: *.ts, **/node_modules (履歴の⇅)';
     includeInput.placeholder = focusText;
     includeInput.title = focusText;
+    saveState();
   });
   includeInput.addEventListener('blur', () => {
     includeInput.placeholder = '';
@@ -553,9 +614,11 @@
   });
 
   excludeInput.addEventListener('focus', () => {
+    lastFocusedArea = 'exclude';
     const focusText = i18n.patternPlaceholderFocus || '例: *.ts, **/node_modules (履歴の⇅)';
     excludeInput.placeholder = focusText;
     excludeInput.title = focusText;
+    saveState();
   });
   excludeInput.addEventListener('blur', () => {
     excludeInput.placeholder = '';
@@ -694,6 +757,8 @@
     currentFileResults = [];
     collapsedPaths.clear();
     selectedItem = null;
+    selectedItemKey = null;
+    savedScrollTop = 0;
     syncContextKeys();
   }
 
@@ -721,6 +786,14 @@
       icon?.classList.remove('expanded');
     }
 
+    // 結果データ上の全ファイルパスも collapsedPaths に登録し、表示モード切替や再描画時も確実に維持
+    for (const f of currentFileResults) {
+      if (f && f.filePath) {
+        collapsedPaths.add(`file:${f.filePath}`);
+      }
+    }
+
+    saveState();
     syncContextKeys();
   }
 
@@ -746,6 +819,7 @@
       icon?.classList.add('expanded');
     }
 
+    saveState();
     syncContextKeys();
   }
 
@@ -779,8 +853,26 @@
         applySettings(message.settings);
         break;
 
+      case 'viewVisible':
+        // アクティビティバーのタブ切替で戻ってきた際、コンテキストキー・スクロール位置・フォーカス状態を完全復元（再検索やリセットは一切行わない）
+        syncContextKeys();
+        if (savedScrollTop > 0) {
+          resultsContainer.scrollTop = savedScrollTop;
+          requestAnimationFrame(() => {
+            resultsContainer.scrollTop = savedScrollTop;
+          });
+        }
+        if (lastFocusedArea === 'results' && selectedItem && !selectedItem.closest('.hidden')) {
+          selectedItem.focus({ preventScroll: true });
+        } else if (lastFocusedArea === 'include' && isDetailsExpanded) {
+          includeInput.focus({ preventScroll: true });
+        } else if (lastFocusedArea === 'exclude' && isDetailsExpanded) {
+          excludeInput.focus({ preventScroll: true });
+        }
+        break;
+
       case 'focusSearchInput':
-        if (message.initialQuery && message.initialQuery.trim()) {
+        if (message.initialQuery && message.initialQuery.trim() && message.initialQuery !== searchInput.value) {
           searchInput.value = message.initialQuery;
           adjustSearchInputHeight();
           executeSearch(true);
@@ -814,10 +906,10 @@
 
       case 'triggerSetViewMode':
         isTreeMode = !!message.isTreeMode;
-        saveState();
         if (currentFileResults.length > 0) {
           renderResults(currentFileResults);
         }
+        saveState();
         syncContextKeys();
         break;
 
@@ -851,6 +943,7 @@
         statusContainer.className = 'status-container';
         statusContainer.innerHTML = `<span class="spinner"></span> <span>${i18n.searching}</span>`;
         clearResults();
+        saveState();
         break;
 
       case 'searchProgress':
@@ -875,6 +968,7 @@
           statusContainer.className = 'status-container';
           statusContainer.textContent = formatMatchCountText(message.totalFiles, message.totalMatches, message.isTruncated);
         }
+        saveState();
         syncContextKeys();
         break;
 
@@ -882,6 +976,7 @@
         isSearching = false;
         statusContainer.className = 'status-container';
         statusContainer.textContent = i18n.searchCancelled;
+        saveState();
         syncContextKeys();
         break;
 
@@ -889,6 +984,7 @@
         isSearching = false;
         statusContainer.className = 'status-container error';
         statusContainer.textContent = `${message.errorMessage}`;
+        saveState();
         syncContextKeys();
         break;
     }
@@ -975,9 +1071,11 @@
       selectedItem.classList.remove('selected');
     }
     selectedItem = element;
+    selectedItemKey = getItemKey(element);
     if (selectedItem) {
       selectedItem.classList.add('selected');
       if (shouldFocus) {
+        lastFocusedArea = 'results';
         // 検索入力欄・詳細入力欄のフォーカスを確実に解除 (ペースト等の誤爆を完全防止)
         searchInput.blur();
         includeInput.blur();
@@ -986,7 +1084,65 @@
       }
       selectedItem.scrollIntoView({ block: 'nearest' });
     }
+    saveState();
   }
+
+  /**
+   * 保存されている selectedItemKey に一致する DOM 要素を探して選択状態を復元する
+   */
+  function restoreSelectedItemFromKey() {
+    if (!selectedItemKey) return;
+    if (selectedItemKey.startsWith('match:')) {
+      const candidates = resultsContainer.querySelectorAll('.match-item');
+      for (const el of candidates) {
+        if (el.getAttribute('data-match-key') === selectedItemKey) {
+          selectedItem = /** @type {HTMLElement} */ (el);
+          selectedItem.classList.add('selected');
+          return;
+        }
+      }
+    } else if (selectedItemKey.startsWith('file:')) {
+      const targetPath = selectedItemKey.substring(5);
+      const groups = resultsContainer.querySelectorAll('.file-group');
+      for (const g of groups) {
+        if (g.getAttribute('data-file-path') === targetPath) {
+          const header = /** @type {HTMLElement | null} */ (g.querySelector(':scope > .file-header'));
+          if (header) {
+            selectedItem = header;
+            selectedItem.classList.add('selected');
+            return;
+          }
+        }
+      }
+    } else if (selectedItemKey.startsWith('folder:')) {
+      const targetFolder = selectedItemKey.substring(7);
+      const groups = resultsContainer.querySelectorAll('.folder-group');
+      for (const g of groups) {
+        if (g.getAttribute('data-folder-path') === targetFolder) {
+          const header = /** @type {HTMLElement | null} */ (g.querySelector(':scope > .folder-header'));
+          if (header) {
+            selectedItem = header;
+            selectedItem.classList.add('selected');
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  // スクロール位置の記憶 (非表示状態の 0 リセットを無視して正確に保持)
+  resultsContainer.addEventListener('scroll', () => {
+    if (document.visibilityState === 'hidden' || resultsContainer.offsetParent === null) {
+      return;
+    }
+    savedScrollTop = resultsContainer.scrollTop;
+    if (scrollSaveTimer) {
+      clearTimeout(scrollSaveTimer);
+    }
+    scrollSaveTimer = setTimeout(() => {
+      saveState();
+    }, 150);
+  });
 
   /**
    * 現在画面上に表示されている（折りたたまれていない）全アイテムを文書順に取得
@@ -1134,6 +1290,7 @@
             children.classList.remove('hidden');
             toggleIcon?.classList.add('expanded');
             if (folderPath) collapsedPaths.delete(`folder:${folderPath}`);
+            saveState();
             syncContextKeys();
             e.preventDefault();
           }
@@ -1146,6 +1303,7 @@
             matchList.classList.remove('hidden');
             toggleIcon?.classList.add('expanded');
             if (filePath) collapsedPaths.delete(`file:${filePath}`);
+            saveState();
             syncContextKeys();
             e.preventDefault();
           }
@@ -1162,6 +1320,7 @@
             children.classList.add('hidden');
             toggleIcon?.classList.remove('expanded');
             if (folderPath) collapsedPaths.add(`folder:${folderPath}`);
+            saveState();
             syncContextKeys();
             e.preventDefault();
           } else {
@@ -1182,6 +1341,7 @@
             matchList.classList.add('hidden');
             toggleIcon?.classList.remove('expanded');
             if (filePath) collapsedPaths.add(`file:${filePath}`);
+            saveState();
             syncContextKeys();
             e.preventDefault();
           } else {
@@ -1216,6 +1376,8 @@
     const matchItem = document.createElement('div');
     matchItem.className = 'match-item';
     matchItem.tabIndex = 0;
+    const matchKey = match.id || `${match.lineNumber}:${match.columnNumber}`;
+    matchItem.setAttribute('data-match-key', `match:${file.filePath}::${matchKey}`);
     matchItem.title = `${file.relativePath}:${match.lineNumber}:${match.columnNumber} [${formatEncodingName(match.encoding)}]`;
 
     // @ts-ignore
@@ -1349,6 +1511,7 @@
         } else {
           collapsedPaths.delete(`file:${file.filePath}`);
         }
+        saveState();
         syncContextKeys();
       });
 
@@ -1418,6 +1581,10 @@
       }
     }
 
+    // 折りたたみ状態を最新の collapsedPaths と確実に同期
+    fileDom.matchList.classList.toggle('hidden', isFileCollapsed);
+    fileDom.toggleIcon.classList.toggle('expanded', !isFileCollapsed);
+
     // 深さに応じたインデントとディレクトリ表示の制御
     fileDom.header.style.paddingLeft = `${4 + depth * 12}px`;
     if (fileDom.dirSpan) {
@@ -1441,6 +1608,7 @@
     } else {
       renderListResults(fileResults);
     }
+    restoreSelectedItemFromKey();
   }
 
   /**
@@ -1595,6 +1763,7 @@
         } else {
           collapsedPaths.delete(`folder:${folderNode.fullPath}`);
         }
+        saveState();
         syncContextKeys();
       });
 
@@ -1630,6 +1799,18 @@
       const fileDom = getOrUpdateFileGroupDom(rootFile, 0, true);
       resultsContainer.appendChild(fileDom.container);
     }
+  }
+
+  // 初回ロード時: 永続化されていた検索結果・折りたたみ状態・選択行・スクロール位置を完全復元
+  if (currentFileResults.length > 0) {
+    renderResults(currentFileResults);
+    if (savedScrollTop > 0) {
+      resultsContainer.scrollTop = savedScrollTop;
+      requestAnimationFrame(() => {
+        resultsContainer.scrollTop = savedScrollTop;
+      });
+    }
+    syncContextKeys();
   }
 })();
 

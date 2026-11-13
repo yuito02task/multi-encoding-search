@@ -1,6 +1,6 @@
 {
   "extension.displayName": "Multi-Encoding Search",
-  "extension.description": "A drop-in replacement for VS Code workspace search with full multi-encoding support (except replace). Automatically searches across EUC-JP, Shift_JIS, UTF-8, EUC-KR, and more without changing settings.",
+  "extension.description": "VS Code multi-encoding search & grep extension (drop-in replacement for native search, except replace). Search mixed UTF-8, Shift_JIS (SJIS/CP932), EUC-JP, EUC-KR files without mojibake. 【VSCode 検索 文字コード 拡張機能】設定変更なしで複数文字コードを自動並行検索＆文字化けなしで開く",
   "viewsContainers.multiEncodingSearch.title": "Multi-Encoding Search",
   "views.multiEncodingSearch.name": "Multi-Encoding Search",
   "command.refresh.title": "Refresh",
