@@ -21,8 +21,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
-  // ビュータイトルバー（ヘッダー）のアクションコマンド群を登録
+  // ビュータイトルバー（ヘッダー）およびショートカット起動のアクションコマンド群を登録
   const commands = [
+    vscode.commands.registerCommand('multiEncodingSearch.findInFiles', async () => {
+      await provider.findInFiles();
+    }),
     vscode.commands.registerCommand('multiEncodingSearch.refresh', () => {
       provider.refreshSearch();
     }),

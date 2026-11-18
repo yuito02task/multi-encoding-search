@@ -892,13 +892,20 @@
         break;
 
       case 'focusSearchInput':
-        if (message.initialQuery && message.initialQuery.trim() && message.initialQuery !== searchInput.value) {
+        lastFocusedArea = 'search';
+        if (typeof message.initialQuery === 'string' && message.initialQuery.length > 0) {
           searchInput.value = message.initialQuery;
           adjustSearchInputHeight();
+          syncContextKeys();
           executeSearch(true);
         }
         searchInput.focus();
         searchInput.select();
+        // サイドバー展開アニメーション完了後にも確実にフォーカスと全選択が当たるよう再適用
+        setTimeout(() => {
+          searchInput.focus();
+          searchInput.select();
+        }, 50);
         break;
 
       case 'triggerRefresh':

@@ -24,6 +24,10 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   private isTreeModeState: boolean = false;
   private allCollapsedState: boolean = false;
 
+  // Webview スクリプト初期化完了フラグおよびショートカット起動時の保留フォーカス要求
+  private isWebviewReady: boolean = false;
+  private pendingFocusRequest?: { initialQuery?: string };
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly context?: vscode.ExtensionContext
@@ -294,6 +298,7 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
     _token: vscode.CancellationToken
   ): void {
     this.view = webviewView;
+    this.isWebviewReady = false;
 
     // Webview のオプション設定 (スクリプトの有効化・ローカルリソースのアクセス許可)
     this.updateWebviewOptions();
@@ -306,11 +311,17 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
       await this.handleWebviewMessage(message);
     });
 
-    // タブが再表示された際、コンテキストキーやスクロール位置・フォーカス状態を維持・復元する（検索の再実行や折りたたみ状態のリセットは行わない）
+    // タブが再表示された際、ショートカット起動の保留要求があればそれを適用し、通常のタブ切替であれば状態をそのまま復元する
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
         this.applyContextKeys();
-        this.postMessageToWebview({ command: 'viewVisible' });
+        if (this.pendingFocusRequest) {
+          if (this.isWebviewReady) {
+            this.flushPendingFocusRequest();
+          }
+        } else {
+          this.postMessageToWebview({ command: 'viewVisible' });
+        }
       }
     });
   }
@@ -326,18 +337,55 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * 検索入力欄へフォーカスを移動する (選択範囲があれば検索語として引き継ぐ)
+   * ショートカット (Ctrl+Shift+Alt+F 等) で起動された際に、エディタの選択文字列を引き継いで検索ビューを開き検索を実行する
+   * (VS Code 標準の Ctrl+Shift+F / workbench.action.findInFiles と同等の挙動)
    */
-  public focusSearchInput(): void {
+  public async findInFiles(): Promise<void> {
     let initialQuery: string | undefined;
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor && !activeEditor.selection.isEmpty) {
       const selectedText = activeEditor.document.getText(activeEditor.selection);
-      if (selectedText && !selectedText.includes('\n') && !selectedText.includes('\r')) {
-        initialQuery = selectedText;
+      if (selectedText.length > 0) {
+        initialQuery = selectedText.replace(/\r\n/g, '\n');
       }
     }
-    this.postMessageToWebview({ command: 'focusSearchInput', initialQuery });
+
+    // 保留リクエストとして記録してからビューコンテナを表示する
+    this.pendingFocusRequest = { initialQuery };
+
+    try {
+      await vscode.commands.executeCommand('workbench.view.extension.multi-encoding-search-container');
+    } catch {
+      // フォールバック: 既存の view があれば show を呼ぶ
+      this.view?.show?.(false);
+    }
+
+    // 既に Webview が初期化済みかつ表示中の場合は即座に送信
+    if (this.isWebviewReady && this.pendingFocusRequest) {
+      this.flushPendingFocusRequest();
+    }
+  }
+
+  /**
+   * 保留中のフォーカス・初期検索クエリ要求を Webview へ送信する
+   */
+  private flushPendingFocusRequest(): void {
+    if (!this.pendingFocusRequest) {
+      return;
+    }
+    const req = this.pendingFocusRequest;
+    this.pendingFocusRequest = undefined;
+    this.postMessageToWebview({
+      command: 'focusSearchInput',
+      initialQuery: req.initialQuery
+    });
+  }
+
+  /**
+   * 検索入力欄へフォーカスを移動する (選択範囲があれば検索語として引き継ぐ)
+   */
+  public focusSearchInput(): void {
+    void this.findInFiles();
   }
 
   /**
@@ -435,6 +483,8 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
    * Webview から受信したメッセージを処理する
    */
   private async handleWebviewMessage(message: WebviewMessage): Promise<void> {
+    this.isWebviewReady = true;
+
     switch (message.command) {
       case 'search':
         await this.handleSearchCommand(message.options);
@@ -499,6 +549,10 @@ export class EucjpSearchViewProvider implements vscode.WebviewViewProvider {
           this.isTreeModeState = message.isTreeMode;
           void vscode.commands.executeCommand('setContext', 'multiEncodingSearch.isTreeMode', message.isTreeMode);
           void this.context?.globalState.update('multiEncodingSearch.isTreeMode', message.isTreeMode);
+        }
+        // 初回起動時にショートカットから渡された保留中のフォーカス・検索クエリがあれば適用
+        if (this.pendingFocusRequest) {
+          this.flushPendingFocusRequest();
         }
         break;
 

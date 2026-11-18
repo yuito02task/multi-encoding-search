@@ -2,7 +2,7 @@
   "name": "multi-encoding-search",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "publisher": "yuitomaruyama",
   "icon": "media/icon.png",
   "license": "MIT",
@@ -79,6 +79,11 @@
       ]
     },
     "commands": [
+      {
+        "command": "multiEncodingSearch.findInFiles",
+        "title": "%command.findInFiles.title%",
+        "category": "%viewsContainers.multiEncodingSearch.title%"
+      },
       {
         "command": "multiEncodingSearch.refresh",
         "title": "%command.refresh.title%",
@@ -170,6 +175,11 @@
     "keybindings": [
       {
         "command": "workbench.view.extension.multi-encoding-search-container",
+        "key": "ctrl+shift+alt+f",
+        "mac": "cmd+shift+alt+f"
+      },
+      {
+        "command": "multiEncodingSearch.findInFiles",
         "key": "ctrl+shift+alt+f",
         "mac": "cmd+shift+alt+f"
       }
